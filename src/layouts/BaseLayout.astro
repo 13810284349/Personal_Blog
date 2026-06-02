@@ -1,0 +1,61 @@
+---
+import "../styles/global.css";
+import { site } from "@lib/site";
+
+interface Props {
+  title?: string;
+  description?: string;
+  currentPath?: string;
+}
+
+const {
+  title = site.name,
+  description = site.description,
+  currentPath = Astro.url.pathname
+} = Astro.props;
+const pageTitle = title === site.name ? title : `${title} | ${site.name}`;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="generator" content={Astro.generator} />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <a class="brand" href="/" aria-label={`${site.name} 首页`}>
+          <span class="brand-title">{site.name}</span>
+          <span class="brand-subtitle">HJ 的个人博客</span>
+        </a>
+        <nav class="site-nav" aria-label="主导航">
+          {
+            site.nav.map((item) => (
+              <a
+                href={item.href}
+                aria-current={
+                  currentPath === item.href ||
+                  (item.href !== "/" && currentPath.startsWith(item.href))
+                    ? "page"
+                    : undefined
+                }
+              >
+                {item.label}
+              </a>
+            ))
+          }
+        </nav>
+      </header>
+      <main class="page">
+        <slot />
+      </main>
+      <footer class="site-footer">
+        <span>© {new Date().getFullYear()} {site.author}. Built with Astro, Supabase and Netlify.</span>
+      </footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,30 @@
+---
+import BaseLayout from "@layouts/BaseLayout.astro";
+import { site } from "@lib/site";
+---
+
+<BaseLayout title="关于" description="关于自然选择与作者 HJ。">
+  <section class="intro">
+    <div>
+      <p class="eyebrow">About</p>
+      <h1 class="page-title">关于这个角落。</h1>
+      <p class="page-description">
+        这里保存 HJ 在技术、阅读和日常观察之间留下的笔记。它不急着像资讯流一样滚动，而是尽量让每个判断都有上下文、有来处，也有一点余温。
+      </p>
+    </div>
+    <aside class="index-mark">
+      <strong>HJ</strong>
+      <span>{site.name}</span>
+      <span>Markdown 写作 / Supabase 互动 / Netlify 部署</span>
+    </aside>
+  </section>
+
+  <article class="prose">
+    <p>
+      博客的内容会从小处开始：代码里的架构取舍，读书时突然变清楚的概念，或者生活中一些反复出现的问题。
+    </p>
+    <p>
+      文章本身保存在 GitHub 仓库中，互动数据交给 Supabase。这样的边界让写作和系统都保持轻盈，也方便以后继续扩展。
+    </p>
+  </article>
+</BaseLayout>

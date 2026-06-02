@@ -1,0 +1,171 @@
+---
+import BaseLayout from "@layouts/BaseLayout.astro";
+---
+
+<BaseLayout title="评论审核" description="审核自然选择的博客评论。">
+  <section class="intro">
+    <div>
+      <p class="eyebrow">Admin</p>
+      <h1 class="page-title">评论审核。</h1>
+      <p class="page-description">输入后台 token 后查看待审核评论。token 只保存在当前浏览器会话中。</p>
+    </div>
+  </section>
+
+  <section class="admin-panel" data-admin-comments>
+    <div class="field-grid">
+      <div class="field">
+        <label for="admin-token">审核 Token</label>
+        <input id="admin-token" data-admin-token type="password" autocomplete="current-password" />
+      </div>
+      <div class="field">
+        <label for="admin-status">状态</label>
+        <select id="admin-status" data-admin-status>
+          <option value="pending">待审核</option>
+          <option value="approved">已通过</option>
+          <option value="rejected">已拒绝</option>
+        </select>
+      </div>
+    </div>
+    <button class="primary-button" type="button" data-admin-load>载入评论</button>
+    <p class="form-note" data-admin-note></p>
+    <div class="admin-list" data-admin-list></div>
+  </section>
+
+  <script>
+    type AdminComment = {
+      id: string;
+      post_slug: string;
+      author_name: string;
+      body: string;
+      status: string;
+      created_at: string;
+    };
+
+    const root = document.querySelector("[data-admin-comments]");
+    const tokenInput = root?.querySelector("[data-admin-token]");
+    const statusInput = root?.querySelector("[data-admin-status]");
+    const loadButton = root?.querySelector("[data-admin-load]");
+    const note = root?.querySelector("[data-admin-note]");
+    const list = root?.querySelector("[data-admin-list]");
+    const storageKey = "natural-selection-admin-token";
+
+    if (tokenInput instanceof HTMLInputElement) {
+      tokenInput.value = sessionStorage.getItem(storageKey) ?? "";
+      tokenInput.addEventListener("change", () => {
+        sessionStorage.setItem(storageKey, tokenInput.value);
+      });
+    }
+
+    function getToken() {
+      return tokenInput instanceof HTMLInputElement ? tokenInput.value.trim() : "";
+    }
+
+    function getStatus() {
+      return statusInput instanceof HTMLSelectElement ? statusInput.value : "pending";
+    }
+
+    function setNote(message: string) {
+      if (note) note.textContent = message;
+    }
+
+    function renderComment(comment: AdminComment) {
+      const item = document.createElement("article");
+      item.className = "admin-comment";
+
+      const meta = document.createElement("p");
+      meta.className = "form-note";
+      meta.textContent = `${comment.post_slug} · ${new Date(comment.created_at).toLocaleString("zh-CN")}`;
+
+      const author = document.createElement("h2");
+      author.className = "section-heading";
+      author.textContent = comment.author_name;
+
+      const body = document.createElement("p");
+      body.textContent = comment.body;
+
+      const actions = document.createElement("div");
+      actions.className = "admin-actions";
+
+      for (const action of [
+        ["approved", "通过", "primary-button"],
+        ["rejected", "拒绝", "ghost-button"],
+        ["pending", "退回待审", "ghost-button"]
+      ] as const) {
+        const button = document.createElement("button");
+        button.className = action[2];
+        button.type = "button";
+        button.dataset.nextStatus = action[0];
+        button.textContent = action[1];
+        actions.append(button);
+      }
+
+      item.append(meta, author, body, actions);
+
+      for (const button of item.querySelectorAll("[data-next-status]")) {
+        button.addEventListener("click", async () => {
+          if (!(button instanceof HTMLButtonElement)) return;
+          await updateComment(comment.id, button.dataset.nextStatus);
+        });
+      }
+
+      return item;
+    }
+
+    async function loadComments() {
+      const token = getToken();
+      if (!token) {
+        setNote("请先输入审核 token。");
+        return;
+      }
+
+      sessionStorage.setItem(storageKey, token);
+      setNote("载入中。");
+      if (list) list.innerHTML = "";
+
+      try {
+        const response = await fetch(`/api/admin/comments?status=${encodeURIComponent(getStatus())}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.message ?? "load failed");
+
+        if (list) {
+          list.innerHTML = "";
+          for (const comment of payload.comments) {
+            list.append(renderComment(comment));
+          }
+        }
+
+        setNote(payload.comments.length ? `已载入 ${payload.comments.length} 条评论。` : "没有评论。");
+      } catch {
+        setNote("载入失败，请检查 token 和环境变量。");
+      }
+    }
+
+    async function updateComment(id: string, status: string | undefined) {
+      const token = getToken();
+      if (!token || !status) return;
+
+      setNote("更新中。");
+      try {
+        const response = await fetch("/api/admin/comments", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ id, status })
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.message ?? "update failed");
+        setNote("已更新。");
+        await loadComments();
+      } catch {
+        setNote("更新失败。");
+      }
+    }
+
+    loadButton?.addEventListener("click", loadComments);
+    statusInput?.addEventListener("change", loadComments);
+  </script>
+</BaseLayout>

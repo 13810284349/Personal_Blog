@@ -1,0 +1,118 @@
+---
+interface Props {
+  slug: string;
+}
+
+const { slug } = Astro.props;
+---
+
+<section class="engagement" data-engagement data-slug={slug} aria-label="文章互动数据">
+  <div class="stat-strip">
+    <div class="stat">
+      <span>阅读</span>
+      <strong data-views>0</strong>
+    </div>
+    <div class="stat">
+      <span>喜欢</span>
+      <strong data-likes>0</strong>
+    </div>
+    <div class="stat">
+      <span>评论</span>
+      <strong data-comments-count>0</strong>
+    </div>
+  </div>
+  <button class="like-button" type="button" aria-pressed="false" data-like-button>
+    喜欢这篇
+  </button>
+  <p class="form-note" data-engagement-note>数据载入中</p>
+</section>
+
+<script>
+  const visitorKey = "natural-selection-visitor-id";
+
+  function getVisitorId(): string {
+    const stored = localStorage.getItem(visitorKey);
+    if (stored) return stored;
+
+    const next =
+      globalThis.crypto?.randomUUID?.() ??
+      `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(visitorKey, next);
+    return next;
+  }
+
+  function setNumber(
+    root: Element,
+    selector: string,
+    value: number | string | null | undefined
+  ) {
+    const element = root.querySelector(selector);
+    if (element) element.textContent = Number(value ?? 0).toLocaleString("zh-CN");
+  }
+
+  async function loadStats(root: Element, slug: string) {
+    const response = await fetch(`/api/post-stats?slugs=${encodeURIComponent(slug)}`);
+    if (!response.ok) throw new Error("stats failed");
+    const payload = await response.json();
+    const stats = payload.stats?.[slug] ?? {};
+    setNumber(root, "[data-views]", stats.views_count);
+    setNumber(root, "[data-likes]", stats.likes_count);
+    setNumber(root, "[data-comments-count]", stats.comments_count);
+  }
+
+  for (const root of document.querySelectorAll("[data-engagement]")) {
+    const slug = root.getAttribute("data-slug");
+    const note = root.querySelector("[data-engagement-note]");
+    const button = root.querySelector("[data-like-button]");
+    const likedKey = `natural-selection-liked:${slug}`;
+
+    if (!slug || !(button instanceof HTMLButtonElement)) continue;
+
+    button.setAttribute("aria-pressed", localStorage.getItem(likedKey) === "true" ? "true" : "false");
+
+    fetch("/api/record-view", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug })
+    })
+      .then(() => loadStats(root, slug))
+      .then(() => {
+        if (note) note.textContent = "已更新";
+      })
+      .catch(() => {
+        if (note) note.textContent = "互动数据暂时不可用";
+      });
+
+    button.addEventListener("click", async () => {
+      if (localStorage.getItem(likedKey) === "true") {
+        if (note) note.textContent = "已经记录过这份喜欢";
+        return;
+      }
+
+      button.disabled = true;
+      try {
+        const response = await fetch("/api/like", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug, visitorId: getVisitorId() })
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.message ?? "like failed");
+
+        if (payload.liked) {
+          localStorage.setItem(likedKey, "true");
+          button.setAttribute("aria-pressed", "true");
+          if (note) note.textContent = "谢谢，这份喜欢已经收到";
+        } else if (note) {
+          note.textContent = "已经记录过这份喜欢";
+        }
+
+        await loadStats(root, slug);
+      } catch {
+        if (note) note.textContent = "点赞暂时不可用";
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+</script>

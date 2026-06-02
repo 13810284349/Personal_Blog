@@ -1,0 +1,154 @@
+---
+interface Props {
+  slug: string;
+}
+
+const { slug } = Astro.props;
+---
+
+<section class="comments" data-comments data-slug={slug} aria-labelledby="comments-title">
+  <h2 class="section-heading" id="comments-title">评论</h2>
+  <div class="comment-list" data-comment-list>
+    <p class="comment-empty">评论载入中。</p>
+  </div>
+
+  <form class="comment-form" data-comment-form>
+    <p class="form-note">评论提交后会先进入审核，通过后公开显示。</p>
+    <div class="field-grid">
+      <div class="field">
+        <label for={`name-${slug}`}>昵称</label>
+        <input id={`name-${slug}`} name="authorName" maxlength="80" required autocomplete="name" />
+      </div>
+      <div class="field">
+        <label for={`email-${slug}`}>邮箱（不公开）</label>
+        <input id={`email-${slug}`} name="authorEmail" maxlength="160" type="email" autocomplete="email" />
+      </div>
+    </div>
+    <div class="field">
+      <label for={`website-${slug}`}>个人网站</label>
+      <input id={`website-${slug}`} name="authorWebsite" maxlength="240" type="url" placeholder="https://" />
+    </div>
+    <div class="field">
+      <label for={`body-${slug}`}>内容</label>
+      <textarea id={`body-${slug}`} name="body" minlength="2" maxlength="2000" required></textarea>
+    </div>
+    <div class="honeypot" aria-hidden="true">
+      <label>
+        公司
+        <input name="company" tabindex="-1" autocomplete="off" />
+      </label>
+    </div>
+    <button class="primary-button" type="submit">提交评论</button>
+    <p class="form-note" data-comment-note></p>
+  </form>
+</section>
+
+<script>
+  type PublicComment = {
+    id: string;
+    author_name: string;
+    author_website: string | null;
+    body: string;
+    created_at: string;
+  };
+
+  function createComment(comment: PublicComment) {
+    const article = document.createElement("article");
+    article.className = "comment";
+
+    const header = document.createElement("header");
+    const name = document.createElement("strong");
+    name.textContent = comment.author_name;
+    const time = document.createElement("time");
+    time.dateTime = comment.created_at;
+    time.textContent = new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(new Date(comment.created_at));
+
+    header.append(name, time);
+
+    if (comment.author_website) {
+      const link = document.createElement("a");
+      link.href = comment.author_website;
+      link.rel = "nofollow noopener";
+      link.target = "_blank";
+      link.textContent = "网站";
+      header.append(link);
+    }
+
+    const body = document.createElement("p");
+    body.textContent = comment.body;
+    article.append(header, body);
+    return article;
+  }
+
+  async function loadComments(root: Element, slug: string) {
+    const list = root.querySelector("[data-comment-list]");
+    if (!list) return;
+
+    try {
+      const response = await fetch(`/api/comments?slug=${encodeURIComponent(slug)}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message ?? "comments failed");
+
+      list.innerHTML = "";
+      if (!payload.comments?.length) {
+        const empty = document.createElement("p");
+        empty.className = "comment-empty";
+        empty.textContent = "还没有公开评论。";
+        list.append(empty);
+        return;
+      }
+
+      for (const comment of payload.comments) {
+        list.append(createComment(comment));
+      }
+    } catch {
+      list.innerHTML = '<p class="comment-empty">评论暂时不可用。</p>';
+    }
+  }
+
+  for (const root of document.querySelectorAll("[data-comments]")) {
+    const slug = root.getAttribute("data-slug");
+    const form = root.querySelector("[data-comment-form]");
+    const note = root.querySelector("[data-comment-note]");
+
+    if (!slug || !(form instanceof HTMLFormElement)) continue;
+
+    loadComments(root, slug);
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(form);
+      if (formData.get("company")) return;
+
+      const submit = form.querySelector('button[type="submit"]');
+      if (submit instanceof HTMLButtonElement) submit.disabled = true;
+
+      try {
+        const response = await fetch("/api/comments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            slug,
+            authorName: formData.get("authorName"),
+            authorEmail: formData.get("authorEmail"),
+            authorWebsite: formData.get("authorWebsite"),
+            body: formData.get("body")
+          })
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.message ?? "comment failed");
+
+        form.reset();
+        if (note) note.textContent = "评论已进入审核队列。";
+      } catch {
+        if (note) note.textContent = "评论提交失败，请稍后再试。";
+      } finally {
+        if (submit instanceof HTMLButtonElement) submit.disabled = false;
+      }
+    });
+  }
+</script>

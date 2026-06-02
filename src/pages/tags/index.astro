@@ -1,0 +1,30 @@
+---
+import BaseLayout from "@layouts/BaseLayout.astro";
+import { getAllTags } from "@lib/posts";
+
+const tags = await getAllTags();
+---
+
+<BaseLayout title="标签" description="按标签浏览自然选择的文章。">
+  <section class="intro">
+    <div>
+      <p class="eyebrow">Tags</p>
+      <h1 class="page-title">文章索引。</h1>
+      <p class="page-description">用标签把分散的笔记轻轻串起来。</p>
+    </div>
+    <aside class="index-mark">
+      <strong>{tags.length.toString().padStart(2, "0")}</strong>
+      <span>个标签</span>
+    </aside>
+  </section>
+
+  <div class="tags">
+    {
+      tags.map((tag) => (
+        <a class="tag" href={`/tags/${encodeURIComponent(tag.name)}`}>
+          {tag.name} · {tag.count}
+        </a>
+      ))
+    }
+  </div>
+</BaseLayout>
