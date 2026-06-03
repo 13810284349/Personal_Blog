@@ -3,17 +3,17 @@ import BaseLayout from "@layouts/BaseLayout.astro";
 import { site } from "@lib/site";
 ---
 
-<BaseLayout title="关于" description="关于自然选择与作者 HJ。">
+<BaseLayout title="关于" description={`关于自然选择与作者${site.author}。`}>
   <section class="intro">
     <div>
       <p class="eyebrow">About</p>
       <h1 class="page-title">关于这个角落。</h1>
       <p class="page-description">
-        这里保存 HJ 在技术、阅读和日常观察之间留下的笔记。它不急着像资讯流一样滚动，而是尽量让每个判断都有上下文、有来处，也有一点余温。
+        这里保存 YiYi 在技术、阅读和日常观察之间留下的笔记。它不急着像资讯流一样滚动，而是尽量让每个判断都有上下文、有来处，也有一点余温。
       </p>
     </div>
     <aside class="index-mark">
-      <strong>HJ</strong>
+      <strong>{site.author}</strong>
       <span>{site.name}</span>
       <span>Markdown 写作 / Supabase 互动 / Netlify 部署</span>
     </aside>

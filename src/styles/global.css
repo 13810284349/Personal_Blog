@@ -173,8 +173,9 @@ button {
 .index-mark strong {
   color: var(--ink);
   font-family: var(--serif);
-  font-size: 3rem;
+  font-size: clamp(2.25rem, 5vw, 3rem);
   line-height: 1;
+  overflow-wrap: anywhere;
 }
 
 .post-list {
