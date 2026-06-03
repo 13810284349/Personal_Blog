@@ -324,6 +324,16 @@ button {
   background: #fff;
 }
 
+.prose img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 1.8em 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
 .article-aside {
   position: sticky;
   top: 24px;
