@@ -10,7 +10,7 @@
 - 互动数据：评论、点赞、阅读量由 Supabase 保存，浏览器不直连写库，服务端 API 使用 service role key。
 - 发现与订阅：`/rss.xml`、`/sitemap.xml`、`/robots.txt` 由 Astro endpoint 生成，URL 来源集中在 `src/lib/site.ts`。
 - 公开索引：`/archive` 按年份/月分组展示所有已发布文章；`/search` 构建期生成本地搜索索引，入口都在主导航和 sitemap 中。
-- 文章详情：`/posts/[slug]` 底部有上一篇/下一篇导航，按 `getPublishedPosts()` 的发布时间倒序计算，只链接已发布文章。
+- 文章详情：`/posts/[slug]` 自动从 MDX 渲染结果提取 h2/h3 生成文章目录，标题保留 Astro 生成的稳定 id 并带可跳转锚点；底部有上一篇/下一篇导航，按 `getPublishedPosts()` 的发布时间倒序计算，只链接已发布文章。
 - 图片能力：文章可在 MDX 中引用仓库内图片，当前图片资源放在根目录 `images/`，正文图片样式由 `src/styles/global.css` 的 `.prose img` 统一控制。
 - 线上站点：https://macondo-co.netlify.app
 - GitHub remote：`ssh://git@ssh.github.com:443/13810284349/Personal_Blog.git`
@@ -38,7 +38,9 @@ npm run preview
 - `src/pages/search.astro`：站内搜索页，构建期从已发布文章生成内嵌索引，前端本地搜索。
 - `src/pages/about.astro`：关于页。
 - `src/pages/tags/`：标签列表和标签详情。
-- `src/pages/posts/[slug].astro`：文章详情，包含正文、互动组件和相邻文章导航。
+- `src/pages/posts/[slug].astro`：文章详情，包含正文、文章目录、标题锚点、互动组件和相邻文章导航。
+- `src/components/ArticleToc.astro`：文章目录组件，接收 Astro `MarkdownHeading[]`，桌面端渲染右侧目录，移动端渲染正文前折叠目录。
+- `src/components/HeadingH2.astro`、`src/components/HeadingH3.astro`：MDX h2/h3 覆盖组件，保留标题 id 并追加 hover/focus 可见的 `#` 锚点。
 - `src/pages/admin/comments.astro`：轻量评论审核页。
 - `src/pages/api/`：Astro API routes，由 `@astrojs/netlify` 映射为 Netlify Functions。
 - `src/pages/rss.xml.ts`、`src/pages/sitemap.xml.ts`、`src/pages/robots.txt.ts`：RSS、站点地图和爬虫规则。
@@ -67,6 +69,9 @@ cover: /optional-cover.jpg # 可选
 
 - 草稿设置 `draft: true`，列表和详情页应过滤草稿。
 - `/archive`、`/search` 与首页、标签页、RSS、sitemap 一样，只展示或索引已发布文章。
+- 文章详情页目录由 `render(post)` 返回的 `headings` 过滤 h2/h3 生成，使用 `heading.slug` 作为链接 hash；不要在页面层另写一套 slug 算法，避免目录链接和 Astro 输出的标题 id 脱节。
+- h2/h3 标题通过 MDX `components={{ h2: HeadingH2, h3: HeadingH3 }}` 覆盖，标题文字变更时 id 会随 Astro/MDX 的 heading slug 更新。
+- 文章没有 h2/h3 时不渲染目录；桌面目录位于右侧 aside，移动端目录位于正文前并默认折叠，不遮挡阅读。
 - 文章详情页的“上一篇 / 下一篇”沿用 `getPublishedPosts()` 的发布时间倒序：`上一篇` 是数组中前一个、更近发布的文章；`下一篇` 是数组中后一个、更早发布的文章。
 - 相邻文章导航只在存在相邻已发布文章时展示，显示克制标签、文章标题和发布日期；导航位于正文之后、评论区之前。
 - 新增文章时优先使用短 slug、明确摘要、少量稳定标签。
@@ -88,6 +93,7 @@ cover: /optional-cover.jpg # 可选
 - 公开站点 URL 由 `site.url` 提供，优先读取 `PUBLIC_SITE_URL`，默认回退到 `https://macondo-co.netlify.app`。
 - `/archive` 是公开 HTML 页面，不调用 Supabase，不新增 API；文章排序和草稿过滤应复用 `getPublishedPosts()`。
 - `/search` 是公开 HTML 页面，不调用 Supabase，不新增 API；构建期复用 `getPublishedPosts()` 生成只含已发布文章的搜索索引，搜索范围为标题、描述、标签和清洗截断后的正文摘要。
+- `/posts/[slug]` 的文章目录和标题锚点是静态 HTML 页面行为，不调用 Supabase，不新增 API；目录数据应复用 Astro/MDX 的 `headings`，锚点应复用标题已有 id。
 - `/posts/[slug]` 的相邻文章导航是静态 HTML 页面行为，不调用 Supabase，不新增 API；排序、草稿过滤和日期格式应复用 `getPublishedPosts()` 与 `formatDate()`。
 - 后台审核页必须保持 `noindex, nofollow`。
 - 新增公开页面后，应评估是否加入 `site.nav` 和 `sitemap.xml.ts`。
@@ -172,6 +178,7 @@ PUBLIC_SITE_URL=https://macondo-co.netlify.app
 - 维持现有极简阅读风格，不添加营销型首页或过重装饰。
 - 文案优先中文，品牌/作者名从 `src/lib/site.ts` 读取，避免散落硬编码。
 - UI 改动后检查桌面和移动宽度，确保文本不溢出、不重叠。
+- 文章目录、标题锚点等阅读辅助能力保持克制：优先静态 HTML/CSS，避免新增客户端脚本、API 或数据库依赖。
 - 新组件放在 `src/components/`，共享工具放在 `src/lib/`。
 - API 输入要做 slug、长度、URL、email 等校验；错误返回保持中文友好提示。
 - 数据库写操作只在服务端 API 中进行。

@@ -12,7 +12,7 @@ API 分为三类：
 
 - 公开互动 API：阅读量、点赞、公开评论。
 - 后台审核 API：评论审核列表与状态更新，需要 `BLOG_ADMIN_TOKEN`。
-- 公开页面与发现 endpoint：`/posts/[slug]`、`/archive`、`/search`、`/rss.xml`、`/sitemap.xml`、`/robots.txt`，用于文章阅读、归档浏览、站内搜索、订阅和搜索引擎发现。
+- 公开页面与发现 endpoint：`/posts/[slug]`、`/archive`、`/search`、`/rss.xml`、`/sitemap.xml`、`/robots.txt`，用于文章阅读、文章目录与标题锚点、归档浏览、站内搜索、订阅和搜索引擎发现。
 
 所有数据库写入都在服务端 API 内完成，浏览器端不会直接持有 Supabase service role key。
 
@@ -73,7 +73,7 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 | `/api/comments` | POST | 无 | 提交新评论，默认进入待审核 |
 | `/api/admin/comments?status=...` | GET | Bearer token | 读取后台评论列表 |
 | `/api/admin/comments` | PATCH | Bearer token | 更新评论审核状态 |
-| `/posts/[slug]` | GET | 无 | 阅读已发布文章详情，含相邻文章导航 |
+| `/posts/[slug]` | GET | 无 | 阅读已发布文章详情，含文章目录、标题锚点和相邻文章导航 |
 | `/archive` | GET | 无 | 按年份/月浏览已发布文章归档 |
 | `/search?q=...` | GET | 无 | 前端本地搜索已发布文章 |
 | `/rss.xml` | GET | 无 | RSS 2.0 订阅源 |
@@ -369,12 +369,17 @@ Query 参数：
 行为说明：
 
 - 使用 `getPublishedPosts()` 生成静态路径，继承草稿过滤规则。
+- 使用 `render(post)` 返回的 `headings` 过滤 h2/h3 生成文章目录，目录链接使用 Astro/MDX 生成的 `heading.slug`。
+- h2/h3 标题通过 MDX 自定义组件渲染，保留原有 `id` 并追加 hover/focus 可见的 `#` 锚点链接，支持直接 hash 跳转。
+- 文章没有 h2/h3 时不渲染目录；桌面端目录位于右侧 aside，移动端目录位于正文前的折叠 `<details>`。
+- 文章目录和标题锚点是纯静态 HTML/CSS 行为，不调用 Supabase，不新增 JSON API、数据库表或环境变量。
 - 页面底部在正文之后、评论区之前渲染相邻文章导航。
 - 相邻文章导航沿用 `getPublishedPosts()` 的发布时间倒序：`上一篇` 是数组中前一个、更近发布的文章；`下一篇` 是数组中后一个、更早发布的文章。
 - 每个相邻链接展示标签、文章标题和 `formatDate(publishedAt)` 格式化后的发布日期。
 - 最新文章只显示 `下一篇`，最旧文章只显示 `上一篇`；只有一篇已发布文章时不渲染导航。
 - 导航本身不调用 Supabase，不新增 JSON API、数据库表或环境变量；评论区和阅读/点赞组件仍按各自前端模块调用互动 API。
-- 桌面端导航左右并排，移动端单列，样式由 `src/styles/global.css` 的 `.post-nav` 系列规则控制。
+- 桌面端相邻文章导航左右并排，移动端单列，样式由 `src/styles/global.css` 的 `.post-nav` 系列规则控制。
+- 文章目录样式由 `.article-toc` 系列规则控制，标题锚点样式由 `.anchored-heading` 和 `.heading-anchor` 控制。
 
 ### GET `/archive`
 
@@ -498,7 +503,9 @@ Sitemap: https://macondo-co.netlify.app/sitemap.xml
 
 | 前端模块 | 调用 API |
 | --- | --- |
-| `src/pages/posts/[slug].astro` | 不为相邻文章导航调用 JSON API；详情页内的互动组件另行调用对应 API |
+| `src/pages/posts/[slug].astro` | 不为文章目录、标题锚点和相邻文章导航调用 JSON API；详情页内的互动组件另行调用对应 API |
+| `src/components/ArticleToc.astro` | 不调用 JSON API，接收 Astro `MarkdownHeading[]` 渲染静态目录 |
+| `src/components/HeadingH2.astro`、`src/components/HeadingH3.astro` | 不调用 JSON API，保留标题 id 并渲染静态 hash 锚点 |
 | `src/pages/archive.astro` | 不调用 JSON API，使用内容集合生成归档页 |
 | `src/pages/search.astro` | 不调用 JSON API，构建期生成搜索索引，浏览器端本地搜索 |
 | `src/components/Engagement.astro` | `/api/record-view`、`/api/post-stats`、`/api/like` |
@@ -519,6 +526,7 @@ npm run build
 
 ```bash
 curl -L http://127.0.0.1:4321/posts/hello-world/ | rg "上一篇|下一篇"
+curl -L http://127.0.0.1:4321/posts/enterprise-ai-agent-platform/ | rg "article-toc|heading-anchor"
 curl -L http://127.0.0.1:4321/archive
 curl -L "http://127.0.0.1:4321/search?q=Astro" | rg "小博客的技术栈|search-index"
 curl -L http://127.0.0.1:4321/rss.xml
@@ -531,6 +539,7 @@ curl -L "http://127.0.0.1:4321/api/post-stats?slugs=hello-world"
 
 ```bash
 curl -L https://macondo-co.netlify.app/posts/hello-world/ | rg "上一篇|下一篇"
+curl -L https://macondo-co.netlify.app/posts/enterprise-ai-agent-platform/ | rg "article-toc|heading-anchor"
 curl -L https://macondo-co.netlify.app/archive/
 curl -L "https://macondo-co.netlify.app/search/?q=Astro" | rg "小博客的技术栈|search-index"
 curl -L https://macondo-co.netlify.app/rss.xml
