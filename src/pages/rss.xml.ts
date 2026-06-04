@@ -3,6 +3,36 @@ import { absoluteUrl, escapeXml } from "@lib/discovery";
 import { getPublishedPosts } from "@lib/posts";
 import { site } from "@lib/site";
 
+function imageMimeType(url: string) {
+  const pathname = new URL(url, site.url).pathname.toLowerCase();
+
+  if (pathname.endsWith(".jpg") || pathname.endsWith(".jpeg")) {
+    return "image/jpeg";
+  }
+
+  if (pathname.endsWith(".png")) {
+    return "image/png";
+  }
+
+  if (pathname.endsWith(".webp")) {
+    return "image/webp";
+  }
+
+  if (pathname.endsWith(".gif")) {
+    return "image/gif";
+  }
+
+  if (pathname.endsWith(".svg")) {
+    return "image/svg+xml";
+  }
+
+  if (pathname.endsWith(".avif")) {
+    return "image/avif";
+  }
+
+  return undefined;
+}
+
 export const GET: APIRoute = async () => {
   const posts = await getPublishedPosts();
   const rssUrl = absoluteUrl("/rss.xml");
@@ -16,6 +46,16 @@ export const GET: APIRoute = async () => {
       const categories = post.data.tags
         .map((tag) => `<category>${escapeXml(tag)}</category>`)
         .join("");
+      const coverUrl = post.data.cover ? absoluteUrl(post.data.cover) : undefined;
+      const coverType = coverUrl ? imageMimeType(coverUrl) : undefined;
+      const coverTypeAttribute = coverType
+        ? ` type="${escapeXml(coverType)}"`
+        : "";
+      const media = coverUrl
+        ? `
+      <media:thumbnail url="${escapeXml(coverUrl)}" />
+      <media:content url="${escapeXml(coverUrl)}" medium="image"${coverTypeAttribute} />`
+        : "";
 
       return `
     <item>
@@ -24,13 +64,14 @@ export const GET: APIRoute = async () => {
       <guid isPermaLink="true">${escapeXml(postUrl)}</guid>
       <description>${escapeXml(post.data.description)}</description>
       <pubDate>${post.data.publishedAt.toUTCString()}</pubDate>
+      ${media}
       ${categories}
     </item>`;
     })
     .join("");
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
   <channel>
     <title>${escapeXml(site.name)}</title>
     <link>${escapeXml(homeUrl)}</link>

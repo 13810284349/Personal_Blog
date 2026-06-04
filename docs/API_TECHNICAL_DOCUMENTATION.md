@@ -12,7 +12,7 @@ API 分为三类：
 
 - 公开互动 API：阅读量、点赞、公开评论。
 - 后台审核 API：评论审核列表与状态更新，需要 `BLOG_ADMIN_TOKEN`。
-- 公开页面与发现 endpoint：`/posts/[slug]`、`/archive`、`/search`、`/rss.xml`、`/sitemap.xml`、`/robots.txt`，用于文章阅读、文章封面、社交分享图、文章目录与标题锚点、相关文章推荐、归档浏览、站内搜索、订阅和搜索引擎发现。
+- 公开页面与发现 endpoint：`/posts/[slug]`、`/archive`、`/search`、`/rss.xml`、`/sitemap.xml`、`/robots.txt`，用于文章阅读、文章封面、社交分享图、结构化 SEO、文章目录与标题锚点、相关文章推荐、归档浏览、站内搜索、订阅和搜索引擎发现。
 
 所有数据库写入都在服务端 API 内完成，浏览器端不会直接持有 Supabase service role key。
 
@@ -73,7 +73,7 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 | `/api/comments` | POST | 无 | 提交新评论，默认进入待审核 |
 | `/api/admin/comments?status=...` | GET | Bearer token | 读取后台评论列表 |
 | `/api/admin/comments` | PATCH | Bearer token | 更新评论审核状态 |
-| `/posts/[slug]` | GET | 无 | 阅读已发布文章详情，含封面图、社交分享图、文章目录、标题锚点、相关文章推荐和相邻文章导航 |
+| `/posts/[slug]` | GET | 无 | 阅读已发布文章详情，含封面图、社交分享图、结构化 SEO、文章目录、标题锚点、相关文章推荐和相邻文章导航 |
 | `/archive` | GET | 无 | 按年份/月浏览已发布文章归档 |
 | `/search?q=...` | GET | 无 | 前端本地搜索已发布文章 |
 | `/rss.xml` | GET | 无 | RSS 2.0 订阅源 |
@@ -371,6 +371,9 @@ Query 参数：
 - 使用 `getPublishedPosts()` 生成静态路径，继承草稿过滤规则。
 - 文章 frontmatter 的 `cover` 存在时，标题区后渲染正文宽度封面图，并通过 `BaseLayout` 输出 `og:image` 和 `twitter:image`。
 - `cover` 需要是可公开访问的站内路径或绝对 URL；没有 `cover` 时不渲染封面图，也不输出图片 meta，Twitter card 保持 `summary`。
+- 页面通过 `BaseLayout` 输出 `BlogPosting` JSON-LD，字段包含 `headline`、`description`、`url`、`mainEntityOfPage`、`datePublished`、`dateModified`、`author`、`keywords`、`inLanguage`，有 `cover` 时额外输出绝对地址 `image`。
+- 页面通过 `BaseLayout` 输出 article Open Graph 元数据：`article:published_time`、`article:modified_time`、`article:author` 和按标签重复的 `article:tag`。
+- SEO 的 `dateModified` 使用 `updatedAt ?? publishedAt`；视觉层面的“更新于”仍只在 frontmatter 存在 `updatedAt` 时展示。
 - 列表页、归档页、搜索页和标签页不展示 `cover`。
 - 使用 `render(post)` 返回的 `headings` 过滤 h2/h3 生成文章目录，目录链接使用 Astro/MDX 生成的 `heading.slug`。
 - h2/h3 标题通过 MDX 自定义组件渲染，保留原有 `id` 并追加 hover/focus 可见的 `#` 锚点链接，支持直接 hash 跳转。
@@ -436,6 +439,7 @@ Content-Type: application/rss+xml; charset=utf-8
 
 - 只包含已发布文章。
 - 每篇文章包含 title、link、guid、description、pubDate、category。
+- RSS 根节点声明 Media RSS 命名空间；有 `cover` 的文章输出 `media:thumbnail` 和 `media:content medium="image"`，图片 URL 使用绝对地址，已知扩展名会输出 MIME `type`。
 - feed URL、站点 URL 使用 `site.url` 生成。
 
 ### GET `/sitemap.xml`
@@ -520,7 +524,7 @@ Sitemap: https://macondo-co.netlify.app/sitemap.xml
 | `src/components/Engagement.astro` | `/api/record-view`、`/api/post-stats`、`/api/like` |
 | `src/components/Comments.astro` | `/api/comments` |
 | `src/pages/admin/comments.astro` | `/api/admin/comments` |
-| `src/layouts/BaseLayout.astro` | 输出 canonical、RSS alternate、Open Graph、Twitter card、robots meta；传入 `image` 时额外输出 `og:image` 和 `twitter:image` |
+| `src/layouts/BaseLayout.astro` | 输出 canonical、RSS alternate、Open Graph、Twitter card、robots meta、article meta 和 JSON-LD；传入 `image` 时额外输出 `og:image`、`twitter:image` 和结构化数据图片 |
 
 ## 10. 验证命令
 

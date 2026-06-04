@@ -8,7 +8,9 @@ import RelatedPosts from "@components/RelatedPosts.astro";
 import TagList from "@components/TagList.astro";
 import BaseLayout from "@layouts/BaseLayout.astro";
 import { render } from "astro:content";
+import { absoluteUrl } from "@lib/discovery";
 import { formatDate, getPublishedPosts, readingTime } from "@lib/posts";
+import { site } from "@lib/site";
 
 export async function getStaticPaths() {
   const posts = await getPublishedPosts();
@@ -61,6 +63,30 @@ const tocHeadings = headings.filter(
 );
 const coverImage = post.data.cover;
 const hasAdjacentPosts = previousPost || nextPost;
+const canonicalUrl = absoluteUrl(`/posts/${post.id}`);
+const modifiedTime = post.data.updatedAt ?? post.data.publishedAt;
+const authorUrl = absoluteUrl("/about");
+const articleStructuredData = {
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  headline: post.data.title,
+  description: post.data.description,
+  url: canonicalUrl,
+  mainEntityOfPage: {
+    "@type": "WebPage",
+    "@id": canonicalUrl
+  },
+  datePublished: post.data.publishedAt.toISOString(),
+  dateModified: modifiedTime.toISOString(),
+  author: {
+    "@type": "Person",
+    name: site.author,
+    url: authorUrl
+  },
+  keywords: post.data.tags.join(", "),
+  inLanguage: "zh-CN",
+  ...(coverImage ? { image: absoluteUrl(coverImage) } : {})
+};
 ---
 
 <BaseLayout
@@ -69,6 +95,13 @@ const hasAdjacentPosts = previousPost || nextPost;
   currentPath={`/posts/${post.id}`}
   image={coverImage}
   type="article"
+  article={{
+    publishedTime: post.data.publishedAt,
+    modifiedTime,
+    authorUrl,
+    tags: post.data.tags
+  }}
+  structuredData={articleStructuredData}
 >
   <article>
     <header class="article-header">

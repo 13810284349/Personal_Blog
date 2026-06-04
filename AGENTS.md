@@ -8,10 +8,10 @@
 - 技术栈：Astro 6 + TypeScript + MDX + Supabase + Netlify。
 - 内容来源：文章正文放在 GitHub 仓库的 `src/content/posts/*.mdx`。
 - 互动数据：评论、点赞、阅读量由 Supabase 保存，浏览器不直连写库，服务端 API 使用 service role key。
-- 发现与订阅：`/rss.xml`、`/sitemap.xml`、`/robots.txt` 由 Astro endpoint 生成，URL 来源集中在 `src/lib/site.ts`。
+- 发现与订阅：`/rss.xml`、`/sitemap.xml`、`/robots.txt` 由 Astro endpoint 生成，URL 来源集中在 `src/lib/site.ts`；RSS 对有 `cover` 的文章输出 Media RSS 图片标签。
 - 公开索引：`/archive` 按年份/月分组展示所有已发布文章；`/search` 构建期生成本地搜索索引，入口都在主导航和 sitemap 中。
-- 文章详情：`/posts/[slug]` 自动从 MDX 渲染结果提取 h2/h3 生成文章目录，标题保留 Astro 生成的稳定 id 并带可跳转锚点；正文后有相关文章推荐和上一篇/下一篇导航，均复用 `getPublishedPosts()`，只链接已发布文章。
-- 图片能力：文章可在 MDX 中引用仓库内图片，当前图片资源放在根目录 `images/`，正文图片样式由 `src/styles/global.css` 的 `.prose img` 统一控制；文章 frontmatter 的 `cover` 用于详情页正文宽度封面图和社交分享图。
+- 文章详情：`/posts/[slug]` 自动从 MDX 渲染结果提取 h2/h3 生成文章目录，标题保留 Astro 生成的稳定 id 并带可跳转锚点；正文后有相关文章推荐和上一篇/下一篇导航，均复用 `getPublishedPosts()`，只链接已发布文章；页面输出 `BlogPosting` JSON-LD 和 article Open Graph 元数据。
+- 图片能力：文章可在 MDX 中引用仓库内图片，当前图片资源放在根目录 `images/`，正文图片样式由 `src/styles/global.css` 的 `.prose img` 统一控制；文章 frontmatter 的 `cover` 用于详情页正文宽度封面图、社交分享图、Article JSON-LD 图片和 RSS Media RSS 图片标签。
 - 线上站点：https://macondo-co.netlify.app
 - GitHub remote：`ssh://git@ssh.github.com:443/13810284349/Personal_Blog.git`
 
@@ -79,6 +79,7 @@ cover: /optional-cover.jpg # 可选，公开可访问的封面/社交分享图
 - 正文底部顺序为：相关文章推荐、相邻文章导航、评论区；相邻文章导航只在存在相邻已发布文章时展示，显示克制方向标签、文章标题和发布日期。
 - `cover` 存在时，文章详情页在标题区后、正文列最前面展示正文宽度封面图，并通过 `BaseLayout` 输出 `og:image` 和 `twitter:image`；没有 `cover` 时不渲染封面图，也不输出图片 meta。
 - `cover` 应使用可公开访问的站内路径或绝对 URL，例如 `/covers/post-title.png` 或 `https://example.com/post-title.png`；社交分享图推荐 1200×630。
+- 文章详情页通过 `BaseLayout` 输出 `BlogPosting` JSON-LD，以及 `article:published_time`、`article:modified_time`、`article:author`、`article:tag`；`dateModified` 使用 `updatedAt ?? publishedAt`，作者 URL 固定为站内 `/about`。
 - 列表页、归档页、搜索页和标签页暂不展示封面，避免破坏极简阅读风格。
 - 新增文章时优先使用短 slug、明确摘要、少量稳定标签。
 - 文章图片优先放入 `images/`，在 MDX 中用相对路径引用，例如 `![说明](../../../images/example.png)`。
@@ -88,13 +89,13 @@ cover: /optional-cover.jpg # 可选，公开可访问的封面/社交分享图
 
 当前公开发现入口：
 
-- `GET /rss.xml`：RSS 2.0 feed，只包含已发布文章。
+- `GET /rss.xml`：RSS 2.0 feed，只包含已发布文章；有 `cover` 时输出 `media:thumbnail` 和 `media:content medium="image"`。
 - `GET /sitemap.xml`：包含首页、关于页、归档页、标签页和已发布文章，不包含草稿和后台页。
 - `GET /robots.txt`：允许公开内容抓取，`Disallow: /admin/`，并声明 sitemap 地址。
 
 规则：
 
-- canonical、Open Graph、Twitter card、RSS alternate link 由 `src/layouts/BaseLayout.astro` 统一输出；文章 `cover` 通过可选 `image` prop 输出 `og:image` 和 `twitter:image`。
+- canonical、Open Graph、Twitter card、RSS alternate link、article meta 和 JSON-LD 由 `src/layouts/BaseLayout.astro` 统一输出；文章 `cover` 通过可选 `image` prop 输出 `og:image`、`twitter:image` 和结构化数据图片。
 - 公开站点 URL 由 `site.url` 提供，优先读取 `PUBLIC_SITE_URL`，默认回退到 `https://macondo-co.netlify.app`。
 - `/archive` 是公开 HTML 页面，不调用 Supabase，不新增 API；文章排序和草稿过滤应复用 `getPublishedPosts()`。
 - `/search` 是公开 HTML 页面，不调用 Supabase，不新增 API；构建期复用 `getPublishedPosts()` 生成只含已发布文章的搜索索引，搜索范围为标题、描述、标签和清洗截断后的正文摘要。

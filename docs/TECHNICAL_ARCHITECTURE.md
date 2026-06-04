@@ -152,7 +152,7 @@ cover: "/cover.jpg"
 | `updatedAt` | date | 否 | 更新时间 |
 | `tags` | string[] | 否 | 标签，默认空数组 |
 | `draft` | boolean | 否 | 草稿标记，默认 `false` |
-| `cover` | string | 否 | 公开可访问的封面路径或绝对 URL，用于文章详情页封面图和社交分享图 |
+| `cover` | string | 否 | 公开可访问的封面路径或绝对 URL，用于文章详情页封面图、社交分享图、Article JSON-LD 图片和 RSS Media RSS 图片标签 |
 
 内容读取逻辑集中在 `src/lib/posts.ts`：
 
@@ -170,7 +170,7 @@ cover: "/cover.jpg"
 | 路由 | 文件 | 渲染方式 | 功能 |
 | --- | --- | --- | --- |
 | `/` | `src/pages/index.astro` | 静态 | 首页、文章列表 |
-| `/posts/[slug]` | `src/pages/posts/[slug].astro` | 静态 | 文章详情、封面图、阅读量、点赞、评论 |
+| `/posts/[slug]` | `src/pages/posts/[slug].astro` | 静态 | 文章详情、封面图、结构化 SEO、阅读量、点赞、评论 |
 | `/tags` | `src/pages/tags/index.astro` | 静态 | 标签总览 |
 | `/tags/[tag]` | `src/pages/tags/[tag].astro` | 静态 | 标签下文章列表 |
 | `/about` | `src/pages/about.astro` | 静态 | 关于页 |
@@ -179,11 +179,13 @@ cover: "/cover.jpg"
 
 全站布局在 `src/layouts/BaseLayout.astro` 中，包含：
 
-- `<head>` 基础 meta，以及可选文章社交分享图 meta。
+- `<head>` 基础 meta、可选文章社交分享图 meta、article Open Graph 元数据和 `BlogPosting` JSON-LD。
 - 页眉品牌：站点名、副标题。
 - 主导航：文章、标签、关于、审核。
 - 页面 slot。
 - footer。
+
+文章详情页的结构化 SEO 由 `src/pages/posts/[slug].astro` 组装数据，再交给 `BaseLayout` 输出：`dateModified` 使用 `updatedAt ?? publishedAt`，作者取 `site.author`，作者 URL 为站内 `/about`，标签映射为 repeated `article:tag`，有 `cover` 时同时写入 JSON-LD `image`。
 
 站点级配置集中在 `src/lib/site.ts`：
 
