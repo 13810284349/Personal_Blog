@@ -4,6 +4,7 @@ import Engagement from "@components/Engagement.astro";
 import ArticleToc from "@components/ArticleToc.astro";
 import HeadingH2 from "@components/HeadingH2.astro";
 import HeadingH3 from "@components/HeadingH3.astro";
+import RelatedPosts from "@components/RelatedPosts.astro";
 import TagList from "@components/TagList.astro";
 import BaseLayout from "@layouts/BaseLayout.astro";
 import { render } from "astro:content";
@@ -11,17 +12,49 @@ import { formatDate, getPublishedPosts, readingTime } from "@lib/posts";
 
 export async function getStaticPaths() {
   const posts = await getPublishedPosts();
-  return posts.map((post, index) => ({
-    params: { slug: post.id },
-    props: {
-      post,
-      previousPost: posts[index - 1] ?? null,
-      nextPost: posts[index + 1] ?? null
-    }
-  }));
+
+  return posts.map((post, index) => {
+    const currentTags = new Set(post.data.tags);
+    const relatedPosts =
+      currentTags.size === 0
+        ? []
+        : posts
+            .filter((candidate) => candidate.id !== post.id)
+            .map((candidate) => {
+              const candidateTags = new Set(candidate.data.tags);
+              let sharedTagsCount = 0;
+
+              for (const tag of candidateTags) {
+                if (currentTags.has(tag)) {
+                  sharedTagsCount += 1;
+                }
+              }
+
+              return { post: candidate, sharedTagsCount };
+            })
+            .filter(({ sharedTagsCount }) => sharedTagsCount > 0)
+            .sort(
+              (a, b) =>
+                b.sharedTagsCount - a.sharedTagsCount ||
+                b.post.data.publishedAt.getTime() -
+                  a.post.data.publishedAt.getTime()
+            )
+            .slice(0, 3)
+            .map(({ post }) => post);
+
+    return {
+      params: { slug: post.id },
+      props: {
+        post,
+        previousPost: posts[index - 1] ?? null,
+        nextPost: posts[index + 1] ?? null,
+        relatedPosts
+      }
+    };
+  });
 }
 
-const { post, previousPost, nextPost } = Astro.props;
+const { post, previousPost, nextPost, relatedPosts } = Astro.props;
 const { Content, headings } = await render(post);
 const tocHeadings = headings.filter(
   (heading) => heading.depth === 2 || heading.depth === 3
@@ -60,6 +93,7 @@ const hasAdjacentPosts = previousPost || nextPost;
         <div class="prose">
           <Content components={{ h2: HeadingH2, h3: HeadingH3 }} />
         </div>
+        <RelatedPosts posts={relatedPosts} />
         {
           hasAdjacentPosts && (
             <nav class="post-nav" aria-label="相邻文章">

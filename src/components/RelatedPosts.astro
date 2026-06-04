@@ -1,0 +1,30 @@
+---
+import { formatDate, type PostEntry } from "@lib/posts";
+
+interface Props {
+  posts: PostEntry[];
+}
+
+const { posts } = Astro.props;
+---
+
+{
+  posts.length > 0 && (
+    <section class="related-posts" aria-labelledby="related-posts-title">
+      <h2 class="section-heading" id="related-posts-title">
+        相关文章
+      </h2>
+      <div class="related-post-list">
+        {posts.map((post) => (
+          <a class="related-post-link" href={`/posts/${post.id}`}>
+            <time datetime={post.data.publishedAt.toISOString()}>
+              {formatDate(post.data.publishedAt)}
+            </time>
+            <strong>{post.data.title}</strong>
+            <p>{post.data.description}</p>
+          </a>
+        ))}
+      </div>
+    </section>
+  )
+}
