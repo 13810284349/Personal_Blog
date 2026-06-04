@@ -1,0 +1,19 @@
+---
+import type { HTMLAttributes } from "astro/types";
+
+type Props = HTMLAttributes<"h2">;
+
+const { id, class: className, ...attrs } = Astro.props;
+const anchorHref = id ? `#${id}` : undefined;
+---
+
+<h2 {...attrs} id={id} class:list={["anchored-heading", className]}>
+  <slot />
+  {
+    anchorHref && (
+      <a class="heading-anchor" href={anchorHref} aria-label="跳转到此标题">
+        #
+      </a>
+    )
+  }
+</h2>

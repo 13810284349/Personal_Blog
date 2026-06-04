@@ -1,6 +1,9 @@
 ---
 import Comments from "@components/Comments.astro";
 import Engagement from "@components/Engagement.astro";
+import ArticleToc from "@components/ArticleToc.astro";
+import HeadingH2 from "@components/HeadingH2.astro";
+import HeadingH3 from "@components/HeadingH3.astro";
 import TagList from "@components/TagList.astro";
 import BaseLayout from "@layouts/BaseLayout.astro";
 import { render } from "astro:content";
@@ -19,7 +22,10 @@ export async function getStaticPaths() {
 }
 
 const { post, previousPost, nextPost } = Astro.props;
-const { Content } = await render(post);
+const { Content, headings } = await render(post);
+const tocHeadings = headings.filter(
+  (heading) => heading.depth === 2 || heading.depth === 3
+);
 const hasAdjacentPosts = previousPost || nextPost;
 ---
 
@@ -50,8 +56,9 @@ const hasAdjacentPosts = previousPost || nextPost;
 
     <div class="article-grid">
       <div>
+        <ArticleToc headings={tocHeadings} variant="mobile" />
         <div class="prose">
-          <Content />
+          <Content components={{ h2: HeadingH2, h3: HeadingH3 }} />
         </div>
         {
           hasAdjacentPosts && (
@@ -84,6 +91,7 @@ const hasAdjacentPosts = previousPost || nextPost;
         <Comments slug={post.id} />
       </div>
       <aside class="article-aside">
+        <ArticleToc headings={tocHeadings} variant="desktop" />
         <Engagement slug={post.id} />
         <a class="tag" href="/">返回文章列表</a>
       </aside>
