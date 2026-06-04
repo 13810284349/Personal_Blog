@@ -14,6 +14,7 @@ export const GET: APIRoute = async () => {
   const entries: SitemapEntry[] = [
     { path: "/" },
     { path: "/about" },
+    { path: "/search" },
     { path: "/tags" },
     { path: "/archive" },
     ...tags.map((tag) => ({

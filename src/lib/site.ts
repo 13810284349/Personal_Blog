@@ -10,6 +10,7 @@ export const site = {
   url: publicSiteUrl,
   nav: [
     { href: "/", label: "文章" },
+    { href: "/search", label: "搜索" },
     { href: "/tags", label: "标签" },
     { href: "/archive", label: "归档" },
     { href: "/about", label: "关于" },

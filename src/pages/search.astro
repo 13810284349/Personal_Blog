@@ -1,0 +1,283 @@
+---
+import BaseLayout from "@layouts/BaseLayout.astro";
+import { formatDate, getPublishedPosts } from "@lib/posts";
+
+type SearchIndexItem = {
+  slug: string;
+  title: string;
+  description: string;
+  publishedAt: string;
+  publishedDate: string;
+  tags: string[];
+  bodyExcerpt: string;
+  searchText: string;
+};
+
+const posts = await getPublishedPosts();
+
+function cleanBody(body: string) {
+  return body
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[([^\]]*)]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/<\/?[^>]+>/g, " ")
+    .replace(/\{[^}]*\}/g, " ")
+    .replace(/[#>*_~`-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function truncateText(text: string, maxLength = 500) {
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, maxLength).trim()}...`;
+}
+
+const searchIndex: SearchIndexItem[] = posts.map((post) => {
+  const bodyExcerpt = truncateText(cleanBody(post.body ?? ""));
+
+  return {
+    slug: post.id,
+    title: post.data.title,
+    description: post.data.description,
+    publishedAt: post.data.publishedAt.toISOString(),
+    publishedDate: formatDate(post.data.publishedAt),
+    tags: post.data.tags,
+    bodyExcerpt,
+    searchText: [
+      post.data.title,
+      post.data.description,
+      post.data.tags.join(" "),
+      bodyExcerpt
+    ].join(" ")
+  };
+});
+
+const searchIndexJson = JSON.stringify(searchIndex).replace(/</g, "\\u003c");
+---
+
+<BaseLayout title="搜索" description="搜索自然选择的已发布文章。" currentPath="/search">
+  <section class="intro" aria-labelledby="search-title">
+    <div>
+      <p class="eyebrow">Search</p>
+      <h1 id="search-title" class="page-title">寻找旧判断。</h1>
+      <p class="page-description">在旧文章里，重新捞起一个念头。</p>
+    </div>
+    <aside class="index-mark" aria-label="搜索索引统计">
+      <strong>{posts.length.toString().padStart(2, "0")}</strong>
+      <span>篇已发布文章</span>
+      <span>本地索引</span>
+    </aside>
+  </section>
+
+  <section class="search-panel" aria-labelledby="search-form-title">
+    <h2 id="search-form-title" class="sr-only">站内搜索</h2>
+    <form class="search-form" data-search-form role="search">
+      <label class="search-label" for="site-search">搜索关键词</label>
+      <div class="search-input-row">
+        <input
+          id="site-search"
+          type="search"
+          name="q"
+          data-search-input
+          autocomplete="off"
+          placeholder="输入关键词"
+        />
+        <button class="ghost-button" type="submit">搜索</button>
+      </div>
+    </form>
+    <p class="search-status" data-search-status aria-live="polite"></p>
+  </section>
+
+  <p class="search-empty" data-search-empty hidden>没有找到相关文章。换一个词试试。</p>
+  <div class="search-results" data-search-results aria-label="搜索结果"></div>
+
+  <script id="search-index" type="application/json" set:html={searchIndexJson} is:inline></script>
+  <script is:inline>
+    const indexElement = document.getElementById("search-index");
+    const searchInput = document.querySelector("[data-search-input]");
+    const searchForm = document.querySelector("[data-search-form]");
+    const statusElement = document.querySelector("[data-search-status]");
+    const resultsElement = document.querySelector("[data-search-results]");
+    const emptyElement = document.querySelector("[data-search-empty]");
+    const rawPosts = JSON.parse(indexElement?.textContent ?? "[]");
+
+    const normalize = (value) => value.toLocaleLowerCase("zh-CN").trim();
+    const escapeHtml = (value) =>
+      value.replace(/[&<>"']/g, (char) => {
+        const entities = {
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;"
+        };
+        return entities[char];
+      });
+    const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    const posts = rawPosts.map((post) => ({
+      ...post,
+      titleText: normalize(post.title),
+      descriptionText: normalize(post.description),
+      excerptText: normalize(post.bodyExcerpt),
+      tagTexts: post.tags.map((tag) => normalize(tag)),
+      haystack: normalize(post.searchText)
+    }));
+
+    function getTokens(query) {
+      return normalize(query).split(/\s+/).filter(Boolean);
+    }
+
+    function scorePost(post, tokens) {
+      if (tokens.some((token) => !post.haystack.includes(token))) {
+        return null;
+      }
+
+      return tokens.reduce((score, token) => {
+        if (post.titleText.includes(token)) {
+          score += 16;
+        }
+
+        if (post.tagTexts.some((tag) => tag.includes(token))) {
+          score += 10;
+        }
+
+        if (post.descriptionText.includes(token)) {
+          score += 6;
+        }
+
+        if (post.excerptText.includes(token)) {
+          score += 2;
+        }
+
+        return score;
+      }, 0);
+    }
+
+    function highlightText(value, tokens) {
+      if (tokens.length === 0) {
+        return escapeHtml(value);
+      }
+
+      const matcher = new RegExp(`(${tokens.map(escapeRegExp).join("|")})`, "gi");
+
+      return value
+        .split(matcher)
+        .map((part) => {
+          const escapedPart = escapeHtml(part);
+          const isMatch = tokens.some((token) => normalize(part) === token);
+          return isMatch ? `<mark>${escapedPart}</mark>` : escapedPart;
+        })
+        .join("");
+    }
+
+    function buildSnippet(text, normalizedText, tokens) {
+      if (tokens.length === 0) {
+        return text;
+      }
+
+      const positions = tokens
+        .map((token) => normalizedText.indexOf(token))
+        .filter((position) => position >= 0)
+        .sort((a, b) => a - b);
+
+      if (positions.length === 0) {
+        return text;
+      }
+
+      const start = Math.max(0, positions[0] - 72);
+      const end = Math.min(text.length, positions[0] + 168);
+      const prefix = start > 0 ? "..." : "";
+      const suffix = end < text.length ? "..." : "";
+
+      return `${prefix}${text.slice(start, end).trim()}${suffix}`;
+    }
+
+    function pickSnippet(post, tokens) {
+      if (tokens.length === 0 || tokens.some((token) => post.descriptionText.includes(token))) {
+        return post.description;
+      }
+
+      if (tokens.some((token) => post.excerptText.includes(token))) {
+        return buildSnippet(post.bodyExcerpt, post.excerptText, tokens);
+      }
+
+      return post.description;
+    }
+
+    function renderResults(results, tokens) {
+      resultsElement.innerHTML = results
+        .map((post) => {
+          const snippet = pickSnippet(post, tokens);
+          const tags = post.tags
+            .map((tag) => `<span class="tag">${highlightText(tag, tokens)}</span>`)
+            .join("");
+
+          return `
+            <a class="search-result" href="/posts/${encodeURIComponent(post.slug)}">
+              <time class="post-date" datetime="${escapeHtml(post.publishedAt)}">
+                ${escapeHtml(post.publishedDate)}
+              </time>
+              <article>
+                <h2>${highlightText(post.title, tokens)}</h2>
+                <p class="search-snippet">${highlightText(snippet, tokens)}</p>
+                <div class="search-tags" aria-label="文章标签">${tags}</div>
+              </article>
+            </a>
+          `;
+        })
+        .join("");
+    }
+
+    function updateUrl(query) {
+      const url = new URL(window.location.href);
+
+      if (query.trim()) {
+        url.searchParams.set("q", query.trim());
+      } else {
+        url.searchParams.delete("q");
+      }
+
+      window.history.replaceState({}, "", url);
+    }
+
+    function runSearch(query) {
+      const tokens = getTokens(query);
+      const results =
+        tokens.length === 0
+          ? posts
+          : posts
+              .map((post, index) => ({
+                post,
+                index,
+                score: scorePost(post, tokens)
+              }))
+              .filter((result) => result.score !== null)
+              .sort((a, b) => b.score - a.score || a.index - b.index)
+              .map((result) => result.post);
+
+      renderResults(results, tokens);
+      emptyElement.hidden = results.length > 0;
+      statusElement.textContent =
+        tokens.length === 0
+          ? `共 ${results.length} 篇已发布文章`
+          : `找到 ${results.length} 篇与“${query.trim()}”相关的文章`;
+      updateUrl(query);
+    }
+
+    const initialQuery = new URLSearchParams(window.location.search).get("q") ?? "";
+    searchInput.value = initialQuery;
+    runSearch(initialQuery);
+
+    searchInput.addEventListener("input", () => runSearch(searchInput.value));
+    searchForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      runSearch(searchInput.value);
+      searchInput.blur();
+    });
+  </script>
+</BaseLayout>
