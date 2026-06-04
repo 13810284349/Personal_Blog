@@ -59,6 +59,7 @@ const { Content, headings } = await render(post);
 const tocHeadings = headings.filter(
   (heading) => heading.depth === 2 || heading.depth === 3
 );
+const coverImage = post.data.cover;
 const hasAdjacentPosts = previousPost || nextPost;
 ---
 
@@ -66,6 +67,7 @@ const hasAdjacentPosts = previousPost || nextPost;
   title={post.data.title}
   description={post.data.description}
   currentPath={`/posts/${post.id}`}
+  image={coverImage}
   type="article"
 >
   <article>
@@ -89,6 +91,13 @@ const hasAdjacentPosts = previousPost || nextPost;
 
     <div class="article-grid">
       <div>
+        {
+          coverImage && (
+            <figure class="article-cover">
+              <img src={coverImage} alt={`${post.data.title}封面图`} loading="eager" decoding="async" />
+            </figure>
+          )
+        }
         <ArticleToc headings={tocHeadings} variant="mobile" />
         <div class="prose">
           <Content components={{ h2: HeadingH2, h3: HeadingH3 }} />

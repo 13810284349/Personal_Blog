@@ -11,7 +11,7 @@
 - 发现与订阅：`/rss.xml`、`/sitemap.xml`、`/robots.txt` 由 Astro endpoint 生成，URL 来源集中在 `src/lib/site.ts`。
 - 公开索引：`/archive` 按年份/月分组展示所有已发布文章；`/search` 构建期生成本地搜索索引，入口都在主导航和 sitemap 中。
 - 文章详情：`/posts/[slug]` 自动从 MDX 渲染结果提取 h2/h3 生成文章目录，标题保留 Astro 生成的稳定 id 并带可跳转锚点；正文后有相关文章推荐和上一篇/下一篇导航，均复用 `getPublishedPosts()`，只链接已发布文章。
-- 图片能力：文章可在 MDX 中引用仓库内图片，当前图片资源放在根目录 `images/`，正文图片样式由 `src/styles/global.css` 的 `.prose img` 统一控制。
+- 图片能力：文章可在 MDX 中引用仓库内图片，当前图片资源放在根目录 `images/`，正文图片样式由 `src/styles/global.css` 的 `.prose img` 统一控制；文章 frontmatter 的 `cover` 用于详情页正文宽度封面图和社交分享图。
 - 线上站点：https://macondo-co.netlify.app
 - GitHub remote：`ssh://git@ssh.github.com:443/13810284349/Personal_Blog.git`
 
@@ -65,7 +65,7 @@ updatedAt: 2026-06-03 # 可选
 tags:
   - Astro
 draft: false
-cover: /optional-cover.jpg # 可选
+cover: /optional-cover.jpg # 可选，公开可访问的封面/社交分享图
 ```
 
 - 草稿设置 `draft: true`，列表和详情页应过滤草稿。
@@ -77,10 +77,12 @@ cover: /optional-cover.jpg # 可选
 - 当前文章没有标签，或没有任何共享标签文章时，不渲染相关文章区块；推荐区只展示标题、发布日期和描述，不新增客户端脚本。
 - 文章详情页的“上一篇 / 下一篇”沿用 `getPublishedPosts()` 的发布时间倒序：`上一篇` 是数组中前一个、更近发布的文章；`下一篇` 是数组中后一个、更早发布的文章。
 - 正文底部顺序为：相关文章推荐、相邻文章导航、评论区；相邻文章导航只在存在相邻已发布文章时展示，显示克制方向标签、文章标题和发布日期。
+- `cover` 存在时，文章详情页在标题区后、正文列最前面展示正文宽度封面图，并通过 `BaseLayout` 输出 `og:image` 和 `twitter:image`；没有 `cover` 时不渲染封面图，也不输出图片 meta。
+- `cover` 应使用可公开访问的站内路径或绝对 URL，例如 `/covers/post-title.png` 或 `https://example.com/post-title.png`；社交分享图推荐 1200×630。
+- 列表页、归档页、搜索页和标签页暂不展示封面，避免破坏极简阅读风格。
 - 新增文章时优先使用短 slug、明确摘要、少量稳定标签。
 - 文章图片优先放入 `images/`，在 MDX 中用相对路径引用，例如 `![说明](../../../images/example.png)`。
 - 图片必须写有意义的 alt 文本；大图或截图提交前尽量压缩，避免仓库体积无谓膨胀。
-- `cover` 字段当前只作为内容模型预留字段，不是列表页/详情页核心展示能力。
 
 ## 发现与订阅
 
@@ -92,11 +94,11 @@ cover: /optional-cover.jpg # 可选
 
 规则：
 
-- canonical、Open Graph、Twitter card、RSS alternate link 由 `src/layouts/BaseLayout.astro` 统一输出。
+- canonical、Open Graph、Twitter card、RSS alternate link 由 `src/layouts/BaseLayout.astro` 统一输出；文章 `cover` 通过可选 `image` prop 输出 `og:image` 和 `twitter:image`。
 - 公开站点 URL 由 `site.url` 提供，优先读取 `PUBLIC_SITE_URL`，默认回退到 `https://macondo-co.netlify.app`。
 - `/archive` 是公开 HTML 页面，不调用 Supabase，不新增 API；文章排序和草稿过滤应复用 `getPublishedPosts()`。
 - `/search` 是公开 HTML 页面，不调用 Supabase，不新增 API；构建期复用 `getPublishedPosts()` 生成只含已发布文章的搜索索引，搜索范围为标题、描述、标签和清洗截断后的正文摘要。
-- `/posts/[slug]` 的文章目录和标题锚点是静态 HTML 页面行为，不调用 Supabase，不新增 API；目录数据应复用 Astro/MDX 的 `headings`，锚点应复用标题已有 id。
+- `/posts/[slug]` 的封面图、文章目录和标题锚点是静态 HTML 页面行为，不调用 Supabase，不新增 API；目录数据应复用 Astro/MDX 的 `headings`，锚点应复用标题已有 id。
 - `/posts/[slug]` 的相关文章推荐是静态 HTML 页面行为，不调用 Supabase，不新增 API；排序、草稿过滤和日期格式应复用 `getPublishedPosts()`、文章 `tags` 与 `formatDate()`。
 - `/posts/[slug]` 的相邻文章导航是静态 HTML 页面行为，不调用 Supabase，不新增 API；排序、草稿过滤和日期格式应复用 `getPublishedPosts()` 与 `formatDate()`。
 - 后台审核页必须保持 `noindex, nofollow`。
@@ -182,7 +184,7 @@ PUBLIC_SITE_URL=https://macondo-co.netlify.app
 - 维持现有极简阅读风格，不添加营销型首页或过重装饰。
 - 文案优先中文，品牌/作者名从 `src/lib/site.ts` 读取，避免散落硬编码。
 - UI 改动后检查桌面和移动宽度，确保文本不溢出、不重叠。
-- 文章目录、标题锚点、相关文章推荐等阅读辅助能力保持克制：优先静态 HTML/CSS，避免新增客户端脚本、API 或数据库依赖。
+- 文章封面、目录、标题锚点、相关文章推荐等阅读辅助能力保持克制：优先静态 HTML/CSS，避免新增客户端脚本、API 或数据库依赖。
 - 新组件放在 `src/components/`，共享工具放在 `src/lib/`。
 - API 输入要做 slug、长度、URL、email 等校验；错误返回保持中文友好提示。
 - 数据库写操作只在服务端 API 中进行。
