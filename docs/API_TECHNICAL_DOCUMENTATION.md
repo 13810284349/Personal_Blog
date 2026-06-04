@@ -12,7 +12,7 @@ API 分为三类：
 
 - 公开互动 API：阅读量、点赞、公开评论。
 - 后台审核 API：评论审核列表与状态更新，需要 `BLOG_ADMIN_TOKEN`。
-- 公开页面与发现 endpoint：`/posts/[slug]`、`/archive`、`/rss.xml`、`/sitemap.xml`、`/robots.txt`，用于文章阅读、归档浏览、订阅和搜索引擎发现。
+- 公开页面与发现 endpoint：`/posts/[slug]`、`/archive`、`/search`、`/rss.xml`、`/sitemap.xml`、`/robots.txt`，用于文章阅读、归档浏览、站内搜索、订阅和搜索引擎发现。
 
 所有数据库写入都在服务端 API 内完成，浏览器端不会直接持有 Supabase service role key。
 
@@ -75,6 +75,7 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 | `/api/admin/comments` | PATCH | Bearer token | 更新评论审核状态 |
 | `/posts/[slug]` | GET | 无 | 阅读已发布文章详情，含相邻文章导航 |
 | `/archive` | GET | 无 | 按年份/月浏览已发布文章归档 |
+| `/search?q=...` | GET | 无 | 前端本地搜索已发布文章 |
 | `/rss.xml` | GET | 无 | RSS 2.0 订阅源 |
 | `/sitemap.xml` | GET | 无 | 搜索引擎站点地图 |
 | `/robots.txt` | GET | 无 | 爬虫访问规则 |
@@ -387,6 +388,27 @@ Query 参数：
 - 页面不调用 Supabase，不产生数据库读写。
 - 入口由 `src/lib/site.ts` 的主导航提供，并应出现在 sitemap 中。
 
+### GET `/search`
+
+公开站内搜索页，响应为 HTML 页面。
+
+Query 参数：
+
+| 参数 | 必填 | 说明 |
+| --- | --- | --- |
+| `q` | 否 | 初始搜索关键词，例如 `/search?q=Astro` |
+
+行为说明：
+
+- 构建期使用 `getPublishedPosts()` 生成内嵌搜索索引，继承草稿过滤规则。
+- 索引字段包含 slug、标题、描述、发布日期、标签、正文摘要和合并后的搜索文本。
+- 正文摘要从 `post.body` 清洗 Markdown/MDX 标记后截取约 500 字符，不索引全文。
+- 浏览器端使用原生 JavaScript 本地搜索，不新增 JSON API、不调用 Supabase、不产生数据库读写。
+- 搜索范围为标题、描述、标签和正文摘要；多关键词按空格拆分，所有关键词都需命中。
+- 结果展示标题、日期、命中片段和标签；命中词用 `<mark>` 高亮，并在渲染前转义文本。
+- 空查询默认展示所有已发布文章，顺序沿用 `getPublishedPosts()` 的发布时间倒序。
+- 入口由 `src/lib/site.ts` 的主导航提供，并应出现在 sitemap 中。
+
 ### GET `/rss.xml`
 
 生成 RSS 2.0 订阅源。
@@ -417,6 +439,7 @@ Content-Type: application/xml; charset=utf-8
 
 - 首页 `/`
 - 关于页 `/about`
+- 搜索页 `/search`
 - 归档页 `/archive`
 - 标签总览 `/tags`
 - 标签详情页 `/tags/[tag]`
@@ -477,6 +500,7 @@ Sitemap: https://macondo-co.netlify.app/sitemap.xml
 | --- | --- |
 | `src/pages/posts/[slug].astro` | 不为相邻文章导航调用 JSON API；详情页内的互动组件另行调用对应 API |
 | `src/pages/archive.astro` | 不调用 JSON API，使用内容集合生成归档页 |
+| `src/pages/search.astro` | 不调用 JSON API，构建期生成搜索索引，浏览器端本地搜索 |
 | `src/components/Engagement.astro` | `/api/record-view`、`/api/post-stats`、`/api/like` |
 | `src/components/Comments.astro` | `/api/comments` |
 | `src/pages/admin/comments.astro` | `/api/admin/comments` |
@@ -496,6 +520,7 @@ npm run build
 ```bash
 curl -L http://127.0.0.1:4321/posts/hello-world/ | rg "上一篇|下一篇"
 curl -L http://127.0.0.1:4321/archive
+curl -L "http://127.0.0.1:4321/search?q=Astro" | rg "小博客的技术栈|search-index"
 curl -L http://127.0.0.1:4321/rss.xml
 curl -L http://127.0.0.1:4321/sitemap.xml
 curl -L http://127.0.0.1:4321/robots.txt
@@ -507,6 +532,7 @@ curl -L "http://127.0.0.1:4321/api/post-stats?slugs=hello-world"
 ```bash
 curl -L https://macondo-co.netlify.app/posts/hello-world/ | rg "上一篇|下一篇"
 curl -L https://macondo-co.netlify.app/archive/
+curl -L "https://macondo-co.netlify.app/search/?q=Astro" | rg "小博客的技术栈|search-index"
 curl -L https://macondo-co.netlify.app/rss.xml
 curl -L https://macondo-co.netlify.app/sitemap.xml
 curl -L https://macondo-co.netlify.app/robots.txt
