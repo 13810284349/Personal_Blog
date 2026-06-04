@@ -8,14 +8,19 @@ import { formatDate, getPublishedPosts, readingTime } from "@lib/posts";
 
 export async function getStaticPaths() {
   const posts = await getPublishedPosts();
-  return posts.map((post) => ({
+  return posts.map((post, index) => ({
     params: { slug: post.id },
-    props: { post }
+    props: {
+      post,
+      previousPost: posts[index - 1] ?? null,
+      nextPost: posts[index + 1] ?? null
+    }
   }));
 }
 
-const { post } = Astro.props;
+const { post, previousPost, nextPost } = Astro.props;
 const { Content } = await render(post);
+const hasAdjacentPosts = previousPost || nextPost;
 ---
 
 <BaseLayout
@@ -48,6 +53,34 @@ const { Content } = await render(post);
         <div class="prose">
           <Content />
         </div>
+        {
+          hasAdjacentPosts && (
+            <nav class="post-nav" aria-label="相邻文章">
+              {
+                previousPost && (
+                  <a class="post-nav-link post-nav-link-previous" href={`/posts/${previousPost.id}`}>
+                    <span class="post-nav-label">上一篇</span>
+                    <strong>{previousPost.data.title}</strong>
+                    <time datetime={previousPost.data.publishedAt.toISOString()}>
+                      {formatDate(previousPost.data.publishedAt)}
+                    </time>
+                  </a>
+                )
+              }
+              {
+                nextPost && (
+                  <a class="post-nav-link post-nav-link-next" href={`/posts/${nextPost.id}`}>
+                    <span class="post-nav-label">下一篇</span>
+                    <strong>{nextPost.data.title}</strong>
+                    <time datetime={nextPost.data.publishedAt.toISOString()}>
+                      {formatDate(nextPost.data.publishedAt)}
+                    </time>
+                  </a>
+                )
+              }
+            </nav>
+          )
+        }
         <Comments slug={post.id} />
       </div>
       <aside class="article-aside">

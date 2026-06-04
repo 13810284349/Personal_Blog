@@ -416,6 +416,50 @@ button {
   box-shadow: var(--shadow);
 }
 
+.post-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(18px, 4vw, 36px);
+  max-width: 760px;
+  margin-top: 54px;
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+}
+
+.post-nav-link {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.post-nav-link-next {
+  text-align: right;
+}
+
+.post-nav-link-next:only-child {
+  grid-column: 2;
+}
+
+.post-nav-label,
+.post-nav-link time {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.post-nav-link strong {
+  font-family: var(--serif);
+  font-size: clamp(1.25rem, 2.2vw, 1.8rem);
+  font-weight: 500;
+  line-height: 1.18;
+  overflow-wrap: anywhere;
+}
+
+.post-nav-link:hover strong {
+  color: var(--accent);
+}
+
 .article-aside {
   position: sticky;
   top: 24px;
@@ -636,6 +680,16 @@ button {
 
   .article-aside {
     position: static;
+  }
+
+  .post-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .post-nav-link-next,
+  .post-nav-link-next:only-child {
+    grid-column: auto;
+    text-align: left;
   }
 
   .field-grid {
