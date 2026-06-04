@@ -11,6 +11,7 @@ export const site = {
   nav: [
     { href: "/", label: "文章" },
     { href: "/tags", label: "标签" },
+    { href: "/archive", label: "归档" },
     { href: "/about", label: "关于" },
     { href: "/admin/comments", label: "审核" }
   ]

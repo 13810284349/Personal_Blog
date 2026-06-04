@@ -15,6 +15,7 @@ export const GET: APIRoute = async () => {
     { path: "/" },
     { path: "/about" },
     { path: "/tags" },
+    { path: "/archive" },
     ...tags.map((tag) => ({
       path: `/tags/${encodeURIComponent(tag.name)}`
     })),
