@@ -12,7 +12,7 @@ API 分为三类：
 
 - 公开互动 API：阅读量、点赞、公开评论。
 - 后台审核 API：评论审核列表与状态更新，需要 `BLOG_ADMIN_TOKEN`。
-- 公开页面与发现 endpoint：`/archive`、`/rss.xml`、`/sitemap.xml`、`/robots.txt`，用于归档浏览、订阅和搜索引擎发现。
+- 公开页面与发现 endpoint：`/posts/[slug]`、`/archive`、`/rss.xml`、`/sitemap.xml`、`/robots.txt`，用于文章阅读、归档浏览、订阅和搜索引擎发现。
 
 所有数据库写入都在服务端 API 内完成，浏览器端不会直接持有 Supabase service role key。
 
@@ -73,6 +73,7 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 | `/api/comments` | POST | 无 | 提交新评论，默认进入待审核 |
 | `/api/admin/comments?status=...` | GET | Bearer token | 读取后台评论列表 |
 | `/api/admin/comments` | PATCH | Bearer token | 更新评论审核状态 |
+| `/posts/[slug]` | GET | 无 | 阅读已发布文章详情，含相邻文章导航 |
 | `/archive` | GET | 无 | 按年份/月浏览已发布文章归档 |
 | `/rss.xml` | GET | 无 | RSS 2.0 订阅源 |
 | `/sitemap.xml` | GET | 无 | 搜索引擎站点地图 |
@@ -360,6 +361,20 @@ Query 参数：
 
 ## 7. 公开页面与发现 Endpoint
 
+### GET `/posts/[slug]`
+
+公开文章详情页，响应为 HTML 页面。
+
+行为说明：
+
+- 使用 `getPublishedPosts()` 生成静态路径，继承草稿过滤规则。
+- 页面底部在正文之后、评论区之前渲染相邻文章导航。
+- 相邻文章导航沿用 `getPublishedPosts()` 的发布时间倒序：`上一篇` 是数组中前一个、更近发布的文章；`下一篇` 是数组中后一个、更早发布的文章。
+- 每个相邻链接展示标签、文章标题和 `formatDate(publishedAt)` 格式化后的发布日期。
+- 最新文章只显示 `下一篇`，最旧文章只显示 `上一篇`；只有一篇已发布文章时不渲染导航。
+- 导航本身不调用 Supabase，不新增 JSON API、数据库表或环境变量；评论区和阅读/点赞组件仍按各自前端模块调用互动 API。
+- 桌面端导航左右并排，移动端单列，样式由 `src/styles/global.css` 的 `.post-nav` 系列规则控制。
+
 ### GET `/archive`
 
 公开文章归档页，响应为 HTML 页面。
@@ -460,6 +475,7 @@ Sitemap: https://macondo-co.netlify.app/sitemap.xml
 
 | 前端模块 | 调用 API |
 | --- | --- |
+| `src/pages/posts/[slug].astro` | 不为相邻文章导航调用 JSON API；详情页内的互动组件另行调用对应 API |
 | `src/pages/archive.astro` | 不调用 JSON API，使用内容集合生成归档页 |
 | `src/components/Engagement.astro` | `/api/record-view`、`/api/post-stats`、`/api/like` |
 | `src/components/Comments.astro` | `/api/comments` |
@@ -478,6 +494,7 @@ npm run build
 本地 endpoint 验证：
 
 ```bash
+curl -L http://127.0.0.1:4321/posts/hello-world/ | rg "上一篇|下一篇"
 curl -L http://127.0.0.1:4321/archive
 curl -L http://127.0.0.1:4321/rss.xml
 curl -L http://127.0.0.1:4321/sitemap.xml
@@ -488,6 +505,7 @@ curl -L "http://127.0.0.1:4321/api/post-stats?slugs=hello-world"
 线上 endpoint 验证：
 
 ```bash
+curl -L https://macondo-co.netlify.app/posts/hello-world/ | rg "上一篇|下一篇"
 curl -L https://macondo-co.netlify.app/archive/
 curl -L https://macondo-co.netlify.app/rss.xml
 curl -L https://macondo-co.netlify.app/sitemap.xml

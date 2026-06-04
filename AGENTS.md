@@ -10,6 +10,7 @@
 - 互动数据：评论、点赞、阅读量由 Supabase 保存，浏览器不直连写库，服务端 API 使用 service role key。
 - 发现与订阅：`/rss.xml`、`/sitemap.xml`、`/robots.txt` 由 Astro endpoint 生成，URL 来源集中在 `src/lib/site.ts`。
 - 公开索引：`/archive` 按年份/月分组展示所有已发布文章，入口在主导航和 sitemap 中。
+- 文章详情：`/posts/[slug]` 底部有上一篇/下一篇导航，按 `getPublishedPosts()` 的发布时间倒序计算，只链接已发布文章。
 - 图片能力：文章可在 MDX 中引用仓库内图片，当前图片资源放在根目录 `images/`，正文图片样式由 `src/styles/global.css` 的 `.prose img` 统一控制。
 - 线上站点：https://macondo-co.netlify.app
 - GitHub remote：`ssh://git@ssh.github.com:443/13810284349/Personal_Blog.git`
@@ -36,7 +37,7 @@ npm run preview
 - `src/pages/archive.astro`：文章归档页，按年份/月展示已发布文章。
 - `src/pages/about.astro`：关于页。
 - `src/pages/tags/`：标签列表和标签详情。
-- `src/pages/posts/[slug].astro`：文章详情。
+- `src/pages/posts/[slug].astro`：文章详情，包含正文、互动组件和相邻文章导航。
 - `src/pages/admin/comments.astro`：轻量评论审核页。
 - `src/pages/api/`：Astro API routes，由 `@astrojs/netlify` 映射为 Netlify Functions。
 - `src/pages/rss.xml.ts`、`src/pages/sitemap.xml.ts`、`src/pages/robots.txt.ts`：RSS、站点地图和爬虫规则。
@@ -65,6 +66,8 @@ cover: /optional-cover.jpg # 可选
 
 - 草稿设置 `draft: true`，列表和详情页应过滤草稿。
 - `/archive` 与首页、标签页、RSS、sitemap 一样，只展示或收录已发布文章。
+- 文章详情页的“上一篇 / 下一篇”沿用 `getPublishedPosts()` 的发布时间倒序：`上一篇` 是数组中前一个、更近发布的文章；`下一篇` 是数组中后一个、更早发布的文章。
+- 相邻文章导航只在存在相邻已发布文章时展示，显示克制标签、文章标题和发布日期；导航位于正文之后、评论区之前。
 - 新增文章时优先使用短 slug、明确摘要、少量稳定标签。
 - 文章图片优先放入 `images/`，在 MDX 中用相对路径引用，例如 `![说明](../../../images/example.png)`。
 - 图片必须写有意义的 alt 文本；大图或截图提交前尽量压缩，避免仓库体积无谓膨胀。
@@ -83,6 +86,7 @@ cover: /optional-cover.jpg # 可选
 - canonical、Open Graph、Twitter card、RSS alternate link 由 `src/layouts/BaseLayout.astro` 统一输出。
 - 公开站点 URL 由 `site.url` 提供，优先读取 `PUBLIC_SITE_URL`，默认回退到 `https://macondo-co.netlify.app`。
 - `/archive` 是公开 HTML 页面，不调用 Supabase，不新增 API；文章排序和草稿过滤应复用 `getPublishedPosts()`。
+- `/posts/[slug]` 的相邻文章导航是静态 HTML 页面行为，不调用 Supabase，不新增 API；排序、草稿过滤和日期格式应复用 `getPublishedPosts()` 与 `formatDate()`。
 - 后台审核页必须保持 `noindex, nofollow`。
 - 新增公开页面后，应评估是否加入 `site.nav` 和 `sitemap.xml.ts`。
 
@@ -106,6 +110,7 @@ cover: /optional-cover.jpg # 可选
 
 公开非 JSON endpoint：
 
+- `GET /posts/[slug]`
 - `GET /archive`
 - `GET /rss.xml`
 - `GET /sitemap.xml`
