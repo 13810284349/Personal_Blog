@@ -6,14 +6,21 @@ interface Props {
   title?: string;
   description?: string;
   currentPath?: string;
+  noindex?: boolean;
+  type?: "website" | "article";
 }
 
 const {
   title = site.name,
   description = site.description,
-  currentPath = Astro.url.pathname
+  currentPath = Astro.url.pathname,
+  noindex = false,
+  type = "website"
 } = Astro.props;
 const pageTitle = title === site.name ? title : `${title} | ${site.name}`;
+const canonicalPath = currentPath === "/" ? "/" : currentPath.replace(/\/+$/, "");
+const canonicalUrl = new URL(canonicalPath || "/", site.url).toString();
+const rssUrl = new URL("/rss.xml", site.url).toString();
 ---
 
 <!doctype html>
@@ -22,7 +29,19 @@ const pageTitle = title === site.name ? title : `${title} | ${site.name}`;
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
+    <meta name="robots" content={noindex ? "noindex, nofollow" : "index, follow"} />
     <meta name="generator" content={Astro.generator} />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="alternate" type="application/rss+xml" title={`${site.name} RSS`} href={rssUrl} />
+    <meta property="og:site_name" content={site.name} />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:type" content={type} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={description} />
     <title>{pageTitle}</title>
   </head>
   <body>
