@@ -8,6 +8,9 @@
 - 技术栈：Astro 6 + TypeScript + MDX + Supabase + Netlify。
 - 内容来源：文章正文放在 GitHub 仓库的 `src/content/posts/*.mdx`。
 - 互动数据：评论、点赞、阅读量由 Supabase 保存，浏览器不直连写库，服务端 API 使用 service role key。
+- 发现与订阅：`/rss.xml`、`/sitemap.xml`、`/robots.txt` 由 Astro endpoint 生成，URL 来源集中在 `src/lib/site.ts`。
+- 公开索引：`/archive` 按年份/月分组展示所有已发布文章，入口在主导航和 sitemap 中。
+- 图片能力：文章可在 MDX 中引用仓库内图片，当前图片资源放在根目录 `images/`，正文图片样式由 `src/styles/global.css` 的 `.prose img` 统一控制。
 - 线上站点：https://macondo-co.netlify.app
 - GitHub remote：`ssh://git@ssh.github.com:443/13810284349/Personal_Blog.git`
 
@@ -30,14 +33,18 @@ npm run preview
 - `src/lib/site.ts`：站点名、作者、副标题、导航。
 - `src/layouts/BaseLayout.astro`：全站 HTML shell、页眉、导航、footer。
 - `src/pages/index.astro`：首页文章列表。
+- `src/pages/archive.astro`：文章归档页，按年份/月展示已发布文章。
 - `src/pages/about.astro`：关于页。
 - `src/pages/tags/`：标签列表和标签详情。
 - `src/pages/posts/[slug].astro`：文章详情。
 - `src/pages/admin/comments.astro`：轻量评论审核页。
 - `src/pages/api/`：Astro API routes，由 `@astrojs/netlify` 映射为 Netlify Functions。
+- `src/pages/rss.xml.ts`、`src/pages/sitemap.xml.ts`、`src/pages/robots.txt.ts`：RSS、站点地图和爬虫规则。
 - `src/components/Comments.astro`：评论区。
 - `src/components/Engagement.astro`：点赞和阅读量。
 - `src/content/posts/*.mdx`：文章内容。
+- `images/`：MDX 正文引用的本地图片资源。
+- `docs/API_TECHNICAL_DOCUMENTATION.md`：当前 API 与公开 endpoint 技术文档。
 - `supabase/migrations/`：Supabase 表、RLS、权限迁移。
 - `netlify.toml`：Netlify 构建和安全 header 配置。
 
@@ -57,7 +64,27 @@ cover: /optional-cover.jpg # 可选
 ```
 
 - 草稿设置 `draft: true`，列表和详情页应过滤草稿。
+- `/archive` 与首页、标签页、RSS、sitemap 一样，只展示或收录已发布文章。
 - 新增文章时优先使用短 slug、明确摘要、少量稳定标签。
+- 文章图片优先放入 `images/`，在 MDX 中用相对路径引用，例如 `![说明](../../../images/example.png)`。
+- 图片必须写有意义的 alt 文本；大图或截图提交前尽量压缩，避免仓库体积无谓膨胀。
+- `cover` 字段当前只作为内容模型预留字段，不是列表页/详情页核心展示能力。
+
+## 发现与订阅
+
+当前公开发现入口：
+
+- `GET /rss.xml`：RSS 2.0 feed，只包含已发布文章。
+- `GET /sitemap.xml`：包含首页、关于页、归档页、标签页和已发布文章，不包含草稿和后台页。
+- `GET /robots.txt`：允许公开内容抓取，`Disallow: /admin/`，并声明 sitemap 地址。
+
+规则：
+
+- canonical、Open Graph、Twitter card、RSS alternate link 由 `src/layouts/BaseLayout.astro` 统一输出。
+- 公开站点 URL 由 `site.url` 提供，优先读取 `PUBLIC_SITE_URL`，默认回退到 `https://macondo-co.netlify.app`。
+- `/archive` 是公开 HTML 页面，不调用 Supabase，不新增 API；文章排序和草稿过滤应复用 `getPublishedPosts()`。
+- 后台审核页必须保持 `noindex, nofollow`。
+- 新增公开页面后，应评估是否加入 `site.nav` 和 `sitemap.xml.ts`。
 
 ## Supabase
 
@@ -69,13 +96,20 @@ cover: /optional-cover.jpg # 可选
 
 当前 API：
 
-- `GET /api/post-stats?slug=...`
+- `GET /api/post-stats?slugs=...`
 - `POST /api/record-view`
 - `POST /api/like`
 - `GET /api/comments?slug=...`
 - `POST /api/comments`
 - `GET /api/admin/comments`
 - `PATCH /api/admin/comments`
+
+公开非 JSON endpoint：
+
+- `GET /archive`
+- `GET /rss.xml`
+- `GET /sitemap.xml`
+- `GET /robots.txt`
 
 规则：
 
@@ -119,6 +153,7 @@ PUBLIC_SITE_URL=https://macondo-co.netlify.app
 - 修改环境变量后需要重新部署，Netlify Functions 才会读取新值。
 - 部署后检查：
   - `https://macondo-co.netlify.app/`
+  - `https://macondo-co.netlify.app/archive/`
   - `https://macondo-co.netlify.app/about`
   - 一个文章详情页
   - 评论/点赞/阅读量 API 是否正常。
@@ -131,6 +166,7 @@ PUBLIC_SITE_URL=https://macondo-co.netlify.app
 - 新组件放在 `src/components/`，共享工具放在 `src/lib/`。
 - API 输入要做 slug、长度、URL、email 等校验；错误返回保持中文友好提示。
 - 数据库写操作只在服务端 API 中进行。
+- 公开发现 endpoint 不应泄露后台页、草稿文章或未发布内容。
 
 ## Git 工作流
 
