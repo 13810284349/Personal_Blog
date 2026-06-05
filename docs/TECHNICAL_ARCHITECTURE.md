@@ -1,7 +1,7 @@
 # 自然选择个人博客技术架构文档
 
 版本：v1.0  
-更新时间：2026-06-03  
+更新时间：2026-06-05
 站点：https://macondo-co.netlify.app  
 仓库：`13810284349/Personal_Blog`
 
@@ -15,7 +15,7 @@
 - 页面尽量静态化，降低运行成本，提高访问稳定性。
 - 互动功能不引入完整用户体系，保留轻量评论审核。
 - service role key 只存在于服务端运行环境，不进入浏览器端 bundle。
-- 架构保持可扩展，后续可继续加入搜索、订阅、图片优化、deploy preview 与发布治理等能力。
+- 架构保持可扩展，后续可继续强化搜索、订阅、图片优化、deploy preview 与发布治理等能力。
 
 ## 2. 总体架构
 
@@ -37,6 +37,7 @@ flowchart LR
 
 - 内容层：`src/content/posts/*.mdx`，由 Astro Content Collection 管理。
 - 展示层：Astro pages、layouts、components，负责页面渲染和交互入口。
+- 搜索层：Pagefind 在静态构建后生成 `dist/pagefind/`，浏览器端通过静态 bundle 完成全文搜索。
 - API 层：`src/pages/api/*`，由 `@astrojs/netlify` 转换为 Netlify Functions。
 - 数据层：Supabase Postgres，使用 RLS 和 service role 访问控制。
 - 部署层：Netlify 运行构建、发布静态资源、承载函数。
@@ -50,6 +51,7 @@ flowchart LR
 | 内容 | MDX | 文章正文与组件化内容 |
 | 数据库 | Supabase Postgres | 阅读量、点赞、评论 |
 | 数据访问 | `@supabase/supabase-js` | 服务端 API 访问 Supabase |
+| 搜索 | Pagefind | 构建后生成纯静态全文搜索索引 |
 | 部署 | Netlify | 静态托管、构建、Functions |
 | Adapter | `@astrojs/netlify` | 将 Astro API routes 映射为 Netlify Functions |
 
@@ -83,9 +85,10 @@ npm run build
 ```bash
 ASTRO_TELEMETRY_DISABLED=1 astro check
 ASTRO_TELEMETRY_DISABLED=1 astro build
+pagefind --site dist
 ```
 
-生产构建启用 `@astrojs/netlify` adapter。页面主体静态预渲染到 `dist/`，显式设置 `prerender = false` 的 API routes 被打包为 Netlify Functions。
+生产构建启用 `@astrojs/netlify` adapter。页面主体静态预渲染到 `dist/`，显式设置 `prerender = false` 的 API routes 被打包为 Netlify Functions。Astro 构建完成后，Pagefind 读取 `dist/` 中的静态 HTML 并生成 `dist/pagefind/`，用于 `/search` 的浏览器端全文搜索。
 
 ## 5. 仓库结构
 
@@ -597,13 +600,14 @@ curl -L https://macondo-co.netlify.app/about
 
 - 文章、首页、标签页、关于页均静态预渲染，天然适合 CDN 缓存。
 - 互动数据通过小型 JSON API 异步加载，不阻塞文章正文展示。
+- 站内搜索由 Pagefind 静态 bundle 承载，不需要 Supabase、服务端 API 或运行时索引服务。
 - CSS 集中在 `src/styles/global.css`，避免复杂运行时样式方案。
 - 不引入客户端框架，页面 JavaScript 只用于必要互动。
 
 潜在优化方向：
 
 - 增加 RSS。
-- 增加全文搜索索引。
+- 调整 Pagefind 搜索权重或标签过滤体验。
 - 图片引入 Netlify Image CDN 或 Astro assets。
 - 对 `/api/post-stats` 做短缓存或批量请求优化。
 - 增加构建产物体积检查。
@@ -642,7 +646,7 @@ curl -L https://macondo-co.netlify.app/about
 中期可做：
 
 - 使用 Supabase Edge Functions 或 Netlify Scheduled Functions 做统计归档。
-- 引入搜索，如 Pagefind。
+- 视内容规模增加搜索筛选、排序或搜索高亮跳转。
 - 对评论增加 rate limit。
 - 引入图片资源管理和自动压缩。
 - 增加 Open Graph 图片。

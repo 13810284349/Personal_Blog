@@ -13,6 +13,13 @@ npm install
 npm run dev
 ```
 
+`npm run dev` 用于常规页面开发。Pagefind 搜索索引需要在静态构建后生成，验证全文搜索时请运行：
+
+```bash
+npm run build
+npm run preview
+```
+
 ## 部署
 
 Netlify 已连接 GitHub 仓库，`main` 分支 push 后会自动触发生产构建和部署。
@@ -22,6 +29,8 @@ Netlify 已连接 GitHub 仓库，`main` 分支 push 后会自动触发生产构
 - Build command: `npm run build`
 - Publish directory: `dist`
 - Environment variables: 与 `.env.example` 一致
+
+`npm run build` 会先执行 Astro 检查与构建，再运行 Pagefind，在 `dist/pagefind/` 生成纯静态全文搜索 bundle。
 
 发布流程：
 

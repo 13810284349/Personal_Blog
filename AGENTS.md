@@ -9,7 +9,7 @@
 - 内容来源：文章正文放在 GitHub 仓库的 `src/content/posts/*.mdx`。
 - 互动数据：评论、点赞、阅读量由 Supabase 保存，浏览器不直连写库，服务端 API 使用 service role key。
 - 发现与订阅：`/rss.xml`、`/sitemap.xml`、`/robots.txt` 由 Astro endpoint 生成，URL 来源集中在 `src/lib/site.ts`；RSS 对有 `cover` 的文章输出 Media RSS 图片标签。
-- 公开索引：`/archive` 按年份/月分组展示所有已发布文章；`/search` 构建期生成本地搜索索引，入口都在主导航和 sitemap 中。
+- 公开索引：`/archive` 按年份/月分组展示所有已发布文章；`/search` 使用 Pagefind 静态全文搜索，入口都在主导航和 sitemap 中。
 - 文章详情：`/posts/[slug]` 自动从 MDX 渲染结果提取 h2/h3 生成文章目录，标题保留 Astro 生成的稳定 id 并带可跳转锚点；正文后有相关文章推荐和上一篇/下一篇导航，均复用 `getPublishedPosts()`，只链接已发布文章；页面输出 `BlogPosting` JSON-LD 和 article Open Graph 元数据。
 - 图片能力：文章可在 MDX 中引用仓库内图片，当前图片资源放在根目录 `images/`，正文图片样式由 `src/styles/global.css` 的 `.prose img` 统一控制；文章 frontmatter 的 `cover` 用于详情页正文宽度封面图、社交分享图、Article JSON-LD 图片和 RSS Media RSS 图片标签。
 - 线上站点：https://macondo-co.netlify.app
@@ -27,7 +27,7 @@ npm run preview
 
 - 本地开发默认访问 `http://127.0.0.1:4321/` 或 Astro 输出的本地地址。
 - 提交前至少运行 `npm run check`；涉及页面、API 或部署行为时运行 `npm run build`。
-- `npm run build` 会先执行 `astro check`，再执行 `astro build`。
+- `npm run build` 会先执行 `astro check`，再执行 `astro build`，最后运行 `pagefind --site dist` 生成 `dist/pagefind/`。
 
 ## 目录速览
 
@@ -35,7 +35,7 @@ npm run preview
 - `src/layouts/BaseLayout.astro`：全站 HTML shell、页眉、导航、footer。
 - `src/pages/index.astro`：首页文章列表。
 - `src/pages/archive.astro`：文章归档页，按年份/月展示已发布文章。
-- `src/pages/search.astro`：站内搜索页，构建期从已发布文章生成内嵌索引，前端本地搜索。
+- `src/pages/search.astro`：站内搜索页，使用 Pagefind 静态全文搜索；页面只内嵌标题、日期、标签等展示元数据。
 - `src/pages/about.astro`：关于页。
 - `src/pages/tags/`：标签列表和标签详情。
 - `src/pages/posts/[slug].astro`：文章详情，包含正文、文章目录、标题锚点、相关文章推荐、互动组件和相邻文章导航。
@@ -70,6 +70,7 @@ cover: /optional-cover.jpg # 可选，公开可访问的封面/社交分享图
 
 - 草稿设置 `draft: true`，列表和详情页应过滤草稿。
 - `/archive`、`/search` 与首页、标签页、RSS、sitemap 一样，只展示或索引已发布文章。
+- `/search` 的全文索引由 Pagefind 在构建后从 `dist/` 生成；文章页用 `data-pagefind-body` 标记标题、描述、标签和正文，用 `data-pagefind-ignore="all"` 排除评论、点赞、相关文章和相邻导航等非正文区域。
 - 文章详情页目录由 `render(post)` 返回的 `headings` 过滤 h2/h3 生成，使用 `heading.slug` 作为链接 hash；不要在页面层另写一套 slug 算法，避免目录链接和 Astro 输出的标题 id 脱节。
 - h2/h3 标题通过 MDX `components={{ h2: HeadingH2, h3: HeadingH3 }}` 覆盖，标题文字变更时 id 会随 Astro/MDX 的 heading slug 更新。
 - 文章没有 h2/h3 时不渲染目录；桌面目录位于右侧 aside，移动端目录位于正文前并默认折叠，不遮挡阅读。
@@ -98,7 +99,8 @@ cover: /optional-cover.jpg # 可选，公开可访问的封面/社交分享图
 - canonical、Open Graph、Twitter card、RSS alternate link、article meta 和 JSON-LD 由 `src/layouts/BaseLayout.astro` 统一输出；文章 `cover` 通过可选 `image` prop 输出 `og:image`、`twitter:image` 和结构化数据图片。
 - 公开站点 URL 由 `site.url` 提供，优先读取 `PUBLIC_SITE_URL`，默认回退到 `https://macondo-co.netlify.app`。
 - `/archive` 是公开 HTML 页面，不调用 Supabase，不新增 API；文章排序和草稿过滤应复用 `getPublishedPosts()`。
-- `/search` 是公开 HTML 页面，不调用 Supabase，不新增 API；构建期复用 `getPublishedPosts()` 生成只含已发布文章的搜索索引，搜索范围为标题、描述、标签和清洗截断后的正文摘要。
+- `/search` 是公开 HTML 页面，不调用 Supabase，不新增 API；Pagefind 在 `npm run build` 的 Astro 构建后生成 `dist/pagefind/`，搜索范围为文章标题、描述、标签和 MDX 正文全文。
+- `/search` 不应索引导航、footer、评论区、点赞区、相关文章推荐或相邻文章导航；相关区域应保持在 `data-pagefind-body` 外，必要时加 `data-pagefind-ignore="all"`。
 - `/posts/[slug]` 的封面图、文章目录和标题锚点是静态 HTML 页面行为，不调用 Supabase，不新增 API；目录数据应复用 Astro/MDX 的 `headings`，锚点应复用标题已有 id。
 - `/posts/[slug]` 的相关文章推荐是静态 HTML 页面行为，不调用 Supabase，不新增 API；排序、草稿过滤和日期格式应复用 `getPublishedPosts()`、文章 `tags` 与 `formatDate()`。
 - `/posts/[slug]` 的相邻文章导航是静态 HTML 页面行为，不调用 Supabase，不新增 API；排序、草稿过滤和日期格式应复用 `getPublishedPosts()` 与 `formatDate()`。

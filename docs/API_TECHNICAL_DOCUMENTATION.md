@@ -1,7 +1,7 @@
 # 自然选择 API 技术文档
 
 版本：v1.0  
-更新时间：2026-06-04  
+更新时间：2026-06-05
 生产站点：https://macondo-co.netlify.app
 
 ## 1. 总览
@@ -75,7 +75,7 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 | `/api/admin/comments` | PATCH | Bearer token | 更新评论审核状态 |
 | `/posts/[slug]` | GET | 无 | 阅读已发布文章详情，含封面图、社交分享图、结构化 SEO、文章目录、标题锚点、相关文章推荐和相邻文章导航 |
 | `/archive` | GET | 无 | 按年份/月浏览已发布文章归档 |
-| `/search?q=...` | GET | 无 | 前端本地搜索已发布文章 |
+| `/search?q=...` | GET | 无 | Pagefind 静态全文搜索已发布文章 |
 | `/rss.xml` | GET | 无 | RSS 2.0 订阅源 |
 | `/sitemap.xml` | GET | 无 | 搜索引擎站点地图 |
 | `/robots.txt` | GET | 无 | 爬虫访问规则 |
@@ -416,13 +416,15 @@ Query 参数：
 
 行为说明：
 
-- 构建期使用 `getPublishedPosts()` 生成内嵌搜索索引，继承草稿过滤规则。
-- 索引字段包含 slug、标题、描述、发布日期、标签、正文摘要和合并后的搜索文本。
-- 正文摘要从 `post.body` 清洗 Markdown/MDX 标记后截取约 500 字符，不索引全文。
-- 浏览器端使用原生 JavaScript 本地搜索，不新增 JSON API、不调用 Supabase、不产生数据库读写。
-- 搜索范围为标题、描述、标签和正文摘要；多关键词按空格拆分，所有关键词都需命中。
-- 结果展示标题、日期、命中片段和标签；命中词用 `<mark>` 高亮，并在渲染前转义文本。
+- `npm run build` 会在 Astro 构建后运行 `pagefind --site dist`，生成 `dist/pagefind/` 静态搜索 bundle。
+- `src/pages/search.astro` 只内嵌已发布文章的展示元数据，包括 slug、标题、描述、发布日期、格式化日期、标签和 URL。
+- Pagefind 索引来源为构建后的文章 HTML，继承 Astro 静态路径的草稿过滤规则。
+- 搜索范围为文章标题、描述、标签和 MDX 正文全文；文章页通过 `data-pagefind-body` 标记这些内容。
+- 导航、footer、评论区、点赞区、相关文章推荐和相邻文章导航不进入搜索索引；相关组件或区域使用 `data-pagefind-ignore="all"` 或保持在 `data-pagefind-body` 外。
+- 浏览器端使用 Pagefind JavaScript API 本地搜索，不新增 JSON API、不调用 Supabase、不产生数据库读写。
+- 结果展示标题、日期、Pagefind 命中片段和标签；Pagefind 片段中的命中词使用 `<mark>` 高亮，标题、日期和标签来自构建期展示元数据并在渲染前转义。
 - 空查询默认展示所有已发布文章，顺序沿用 `getPublishedPosts()` 的发布时间倒序。
+- 非空查询按 Pagefind relevance 排序；搜索 bundle 缺失时页面显示中文提示，要求先运行 `npm run build` 再 `npm run preview`。
 - 入口由 `src/lib/site.ts` 的主导航提供，并应出现在 sitemap 中。
 
 ### GET `/rss.xml`
@@ -520,7 +522,7 @@ Sitemap: https://macondo-co.netlify.app/sitemap.xml
 | `src/components/HeadingH2.astro`、`src/components/HeadingH3.astro` | 不调用 JSON API，保留标题 id 并渲染静态 hash 锚点 |
 | `src/components/RelatedPosts.astro` | 不调用 JSON API，接收构建期计算好的相关文章列表；空列表时不输出 HTML |
 | `src/pages/archive.astro` | 不调用 JSON API，使用内容集合生成归档页 |
-| `src/pages/search.astro` | 不调用 JSON API，构建期生成搜索索引，浏览器端本地搜索 |
+| `src/pages/search.astro` | 不调用 JSON API，使用 Pagefind 静态 bundle 做浏览器端全文搜索 |
 | `src/components/Engagement.astro` | `/api/record-view`、`/api/post-stats`、`/api/like` |
 | `src/components/Comments.astro` | `/api/comments` |
 | `src/pages/admin/comments.astro` | `/api/admin/comments` |
@@ -541,7 +543,8 @@ npm run build
 curl -L http://127.0.0.1:4321/posts/hello-world/ | rg "上一篇|下一篇"
 curl -L http://127.0.0.1:4321/posts/enterprise-ai-agent-platform/ | rg "article-toc|heading-anchor"
 curl -L http://127.0.0.1:4321/archive
-curl -L "http://127.0.0.1:4321/search?q=Astro" | rg "小博客的技术栈|search-index"
+curl -L "http://127.0.0.1:4321/search?q=Astro" | rg "search-metadata|pagefind/pagefind.js"
+curl -L http://127.0.0.1:4321/pagefind/pagefind.js | rg "pagefind"
 curl -L http://127.0.0.1:4321/rss.xml
 curl -L http://127.0.0.1:4321/sitemap.xml
 curl -L http://127.0.0.1:4321/robots.txt
@@ -554,7 +557,8 @@ curl -L "http://127.0.0.1:4321/api/post-stats?slugs=hello-world"
 curl -L https://macondo-co.netlify.app/posts/hello-world/ | rg "上一篇|下一篇"
 curl -L https://macondo-co.netlify.app/posts/enterprise-ai-agent-platform/ | rg "article-toc|heading-anchor"
 curl -L https://macondo-co.netlify.app/archive/
-curl -L "https://macondo-co.netlify.app/search/?q=Astro" | rg "小博客的技术栈|search-index"
+curl -L "https://macondo-co.netlify.app/search/?q=Astro" | rg "search-metadata|pagefind/pagefind.js"
+curl -L https://macondo-co.netlify.app/pagefind/pagefind.js | rg "pagefind"
 curl -L https://macondo-co.netlify.app/rss.xml
 curl -L https://macondo-co.netlify.app/sitemap.xml
 curl -L https://macondo-co.netlify.app/robots.txt

@@ -6,7 +6,7 @@ interface Props {
 const { slug } = Astro.props;
 ---
 
-<section class="comments" data-comments data-slug={slug} aria-labelledby="comments-title">
+<section class="comments" data-comments data-slug={slug} aria-labelledby="comments-title" data-pagefind-ignore="all">
   <h2 class="section-heading" id="comments-title">评论</h2>
   <div class="comment-list" data-comment-list>
     <p class="comment-empty">评论载入中。</p>
