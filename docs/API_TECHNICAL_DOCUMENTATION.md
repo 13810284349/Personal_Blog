@@ -71,7 +71,7 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 | `/api/like` | POST | 无 | 记录一次文章喜欢 |
 | `/api/comments?slug=...` | GET | 无 | 读取已审核通过评论 |
 | `/api/comments` | POST | 无 | 提交新评论，默认进入待审核 |
-| `/api/admin/comments?status=...` | GET | Bearer token | 读取后台评论列表 |
+| `/api/admin/comments?status=...&q=...` | GET | Bearer token | 读取后台评论列表 |
 | `/api/admin/comments` | PATCH | Bearer token | 更新评论审核状态 |
 | `/posts/[slug]` | GET | 无 | 阅读已发布文章详情，含封面图、社交分享图、结构化 SEO、文章目录、标题锚点、相关文章推荐和相邻文章导航 |
 | `/archive` | GET | 无 | 按年份/月浏览已发布文章归档 |
@@ -288,13 +288,14 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 
 ### GET `/api/admin/comments`
 
-读取指定状态的评论列表。
+读取指定状态的评论列表，可按关键词筛选。
 
 Query 参数：
 
 | 参数 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `status` | 否 | `pending` | 可选值：`pending`、`approved`、`rejected` |
+| `q` | 否 | 空 | 关键词，匹配 `author_name`、`body`、`post_slug` |
 
 成功响应：
 
@@ -310,7 +311,8 @@ Query 参数：
       "author_website": "https://example.com/",
       "body": "写得很好。",
       "status": "pending",
-      "created_at": "2026-06-04T00:00:00.000Z"
+      "created_at": "2026-06-04T00:00:00.000Z",
+      "reviewed_at": null
     }
   ]
 }
@@ -320,6 +322,7 @@ Query 参数：
 
 - 每次最多返回 100 条。
 - 按创建时间倒序返回。
+- `q` 会清洗长度和通配符后使用不区分大小写的包含搜索。
 - 后台响应包含邮箱和网站，供审核判断使用。
 
 ### PATCH `/api/admin/comments`
@@ -358,6 +361,7 @@ Query 参数：
 行为说明：
 
 - 更新评论状态时会写入 `reviewed_at`。
+- 当状态恢复为 `pending` 时，`reviewed_at` 会被置空。
 - 更新后会重新统计该文章 `approved` 评论数，并写回 `blog_post_stats.comments_count`。
 
 ## 7. 公开页面与发现 Endpoint

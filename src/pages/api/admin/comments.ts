@@ -15,17 +15,30 @@ const statuses = new Set(["pending", "approved", "rejected"]);
 export const GET: APIRoute = async ({ request }) => {
   if (!requireAdmin(request)) return errorJson("未授权。", 401);
 
-  const status = new URL(request.url).searchParams.get("status") ?? "pending";
+  const url = new URL(request.url);
+  const status = url.searchParams.get("status") ?? "pending";
+  const rawQuery = cleanText(url.searchParams.get("q"), 80);
+  const query = rawQuery.replace(/[%_*(),]/g, " ").replace(/\s+/g, " ").trim();
+
   if (!statuses.has(status)) return errorJson("无效评论状态。");
 
   try {
     const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
+    let commentsQuery = supabase
       .from("blog_comments")
       .select(
-        "id, post_slug, author_name, author_email, author_website, body, status, created_at"
+        "id, post_slug, author_name, author_email, author_website, body, status, created_at, reviewed_at"
       )
-      .eq("status", status)
+      .eq("status", status);
+
+    if (query) {
+      const pattern = `%${query}%`;
+      commentsQuery = commentsQuery.or(
+        `author_name.ilike.${pattern},body.ilike.${pattern},post_slug.ilike.${pattern}`
+      );
+    }
+
+    const { data, error } = await commentsQuery
       .order("created_at", { ascending: false })
       .limit(100);
 
@@ -43,6 +56,7 @@ export const PATCH: APIRoute = async ({ request }) => {
   const body = await readJsonObject(request);
   const id = cleanText(body?.id, 80);
   const status = cleanText(body?.status, 20);
+  const reviewedAt = status === "pending" ? null : new Date().toISOString();
 
   if (!/^[0-9a-f-]{36}$/i.test(id)) return errorJson("无效评论 ID。");
   if (!statuses.has(status)) return errorJson("无效评论状态。");
@@ -53,7 +67,7 @@ export const PATCH: APIRoute = async ({ request }) => {
       .from("blog_comments")
       .update({
         status,
-        reviewed_at: new Date().toISOString()
+        reviewed_at: reviewedAt
       })
       .eq("id", id)
       .select("id, post_slug, status")

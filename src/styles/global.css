@@ -890,6 +890,11 @@ button {
   box-shadow: var(--shadow);
 }
 
+.admin-filter-form {
+  display: grid;
+  gap: 14px;
+}
+
 .field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -908,7 +913,7 @@ button {
 
 .field input,
 .field textarea,
-.admin-panel input,
+.admin-panel input:not([type="radio"]),
 .admin-panel select {
   width: 100%;
   min-height: 42px;
@@ -929,6 +934,60 @@ button {
   left: -9999px;
 }
 
+.admin-toolbar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.status-filter {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.status-filter legend {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.status-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.status-tabs label {
+  position: relative;
+}
+
+.status-tabs input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.status-tabs span {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: #fff;
+}
+
+.status-tabs input:checked + span,
+.status-tabs input:focus-visible + span {
+  color: var(--accent-strong);
+  border-color: var(--accent);
+  background: rgba(20, 108, 95, 0.08);
+}
+
 .admin-list {
   display: grid;
   gap: 14px;
@@ -936,10 +995,73 @@ button {
 }
 
 .admin-comment {
+  display: grid;
+  gap: 10px;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
+}
+
+.admin-comment-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.status-badge {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: rgba(24, 24, 23, 0.04);
+}
+
+.status-pending {
+  color: var(--blue);
+  border-color: rgba(49, 95, 150, 0.32);
+  background: rgba(49, 95, 150, 0.08);
+}
+
+.status-approved {
+  color: var(--accent-strong);
+  border-color: rgba(20, 108, 95, 0.34);
+  background: rgba(20, 108, 95, 0.08);
+}
+
+.status-rejected {
+  color: var(--mark);
+  border-color: rgba(185, 71, 47, 0.34);
+  background: rgba(185, 71, 47, 0.08);
+}
+
+.admin-post-link {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.admin-comment-author {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 1.35rem;
+  font-weight: 500;
+}
+
+.admin-comment-body {
+  margin: 0;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.admin-contact {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .admin-actions {
@@ -947,6 +1069,12 @@ button {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+
+.primary-button:disabled,
+.ghost-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
 }
 
 .site-footer {
@@ -1017,6 +1145,10 @@ button {
   }
 
   .field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-toolbar {
     grid-template-columns: 1fr;
   }
 }

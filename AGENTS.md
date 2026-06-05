@@ -42,7 +42,7 @@ npm run preview
 - `src/components/ArticleToc.astro`：文章目录组件，接收 Astro `MarkdownHeading[]`，桌面端渲染右侧目录，移动端渲染正文前折叠目录。
 - `src/components/HeadingH2.astro`、`src/components/HeadingH3.astro`：MDX h2/h3 覆盖组件，保留标题 id 并追加 hover/focus 可见的 `#` 锚点。
 - `src/components/RelatedPosts.astro`：相关文章推荐组件，接收构建期算好的已发布文章列表，空列表时不渲染。
-- `src/pages/admin/comments.astro`：轻量评论审核页。
+- `src/pages/admin/comments.astro`：评论审核页，支持状态筛选、关键词搜索、文章标题/链接展示和一键状态变更。
 - `src/pages/api/`：Astro API routes，由 `@astrojs/netlify` 映射为 Netlify Functions。
 - `src/pages/rss.xml.ts`、`src/pages/sitemap.xml.ts`、`src/pages/robots.txt.ts`：RSS、站点地图和爬虫规则。
 - `src/components/Comments.astro`：评论区。
@@ -122,7 +122,7 @@ cover: /optional-cover.jpg # 可选，公开可访问的封面/社交分享图
 - `POST /api/like`
 - `GET /api/comments?slug=...`
 - `POST /api/comments`
-- `GET /api/admin/comments`
+- `GET /api/admin/comments?status=...&q=...`
 - `PATCH /api/admin/comments`
 
 公开非 JSON endpoint：
@@ -140,6 +140,7 @@ cover: /optional-cover.jpg # 可选，公开可访问的封面/社交分享图
 - 不要提交 `.env`、数据库连接串、service role key、admin token。
 - 评论默认 `pending`，只有 `approved` 公开展示。
 - 后台审核接口使用 `Authorization: Bearer <BLOG_ADMIN_TOKEN>`。
+- 后台审核列表可扩展 query 参数，但优先复用 `blog_comments` 和现有 `/api/admin/comments`，不要为了筛选/搜索新增数据库表。
 - 改 Supabase schema 前，先查看现有迁移，优先新增迁移，不要直接改已应用迁移。
 
 ## 环境变量

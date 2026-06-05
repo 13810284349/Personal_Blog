@@ -1,5 +1,20 @@
 ---
 import BaseLayout from "@layouts/BaseLayout.astro";
+import { getPublishedPosts } from "@lib/posts";
+
+type AdminPostMeta = {
+  slug: string;
+  title: string;
+  url: string;
+};
+
+const posts = await getPublishedPosts();
+const adminPosts: AdminPostMeta[] = posts.map((post) => ({
+  slug: post.id,
+  title: post.data.title,
+  url: `/posts/${encodeURIComponent(post.id)}`
+}));
+const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
 ---
 
 <BaseLayout title="评论审核" description="审核自然选择的博客评论。" noindex>
@@ -7,47 +22,93 @@ import BaseLayout from "@layouts/BaseLayout.astro";
     <div>
       <p class="eyebrow">Admin</p>
       <h1 class="page-title">评论审核。</h1>
-      <p class="page-description">输入后台 token 后查看待审核评论。token 只保存在当前浏览器会话中。</p>
+      <p class="page-description">按状态和关键词维护评论。token 只保存在当前浏览器会话中。</p>
     </div>
   </section>
 
   <section class="admin-panel" data-admin-comments>
-    <div class="field-grid">
-      <div class="field">
-        <label for="admin-token">审核 Token</label>
-        <input id="admin-token" data-admin-token type="password" autocomplete="current-password" />
+    <form class="admin-filter-form" data-admin-form>
+      <div class="field-grid">
+        <div class="field">
+          <label for="admin-token">审核 Token</label>
+          <input id="admin-token" data-admin-token type="password" autocomplete="current-password" />
+        </div>
+        <div class="field">
+          <label for="admin-query">关键词</label>
+          <input
+            id="admin-query"
+            data-admin-query
+            type="search"
+            autocomplete="off"
+            placeholder="昵称、正文、文章 slug"
+          />
+        </div>
       </div>
-      <div class="field">
-        <label for="admin-status">状态</label>
-        <select id="admin-status" data-admin-status>
-          <option value="pending">待审核</option>
-          <option value="approved">已通过</option>
-          <option value="rejected">已拒绝</option>
-        </select>
+      <div class="admin-toolbar">
+        <fieldset class="status-filter">
+          <legend>状态</legend>
+          <div class="status-tabs">
+            <label>
+              <input data-admin-status type="radio" name="admin-status" value="pending" checked />
+              <span>待审核</span>
+            </label>
+            <label>
+              <input data-admin-status type="radio" name="admin-status" value="approved" />
+              <span>已通过</span>
+            </label>
+            <label>
+              <input data-admin-status type="radio" name="admin-status" value="rejected" />
+              <span>已拒绝</span>
+            </label>
+          </div>
+        </fieldset>
+        <button class="primary-button" type="submit" data-admin-load>载入评论</button>
       </div>
-    </div>
-    <button class="primary-button" type="button" data-admin-load>载入评论</button>
-    <p class="form-note" data-admin-note></p>
+    </form>
+    <p class="form-note" data-admin-note aria-live="polite"></p>
     <div class="admin-list" data-admin-list></div>
   </section>
 
+  <script id="admin-post-metadata" type="application/json" set:html={adminPostsJson} is:inline></script>
   <script>
     type AdminComment = {
       id: string;
       post_slug: string;
       author_name: string;
+      author_email: string | null;
+      author_website: string | null;
       body: string;
       status: string;
       created_at: string;
+      reviewed_at: string | null;
+    };
+
+    type AdminPostMeta = {
+      slug: string;
+      title: string;
+      url: string;
     };
 
     const root = document.querySelector("[data-admin-comments]");
+    const form = root?.querySelector("[data-admin-form]");
     const tokenInput = root?.querySelector("[data-admin-token]");
-    const statusInput = root?.querySelector("[data-admin-status]");
-    const loadButton = root?.querySelector("[data-admin-load]");
+    const queryInput = root?.querySelector("[data-admin-query]");
     const note = root?.querySelector("[data-admin-note]");
     const list = root?.querySelector("[data-admin-list]");
+    const postMetadataElement = document.getElementById("admin-post-metadata");
     const storageKey = "natural-selection-admin-token";
+    const statusLabels: Record<string, string> = {
+      pending: "待审核",
+      approved: "已通过",
+      rejected: "已拒绝"
+    };
+    const actionLabels: Record<string, string> = {
+      pending: "恢复待审",
+      approved: "通过",
+      rejected: "拒绝"
+    };
+    const posts = JSON.parse(postMetadataElement?.textContent ?? "[]") as AdminPostMeta[];
+    const postBySlug = new Map(posts.map((post) => [post.slug, post]));
 
     if (tokenInput instanceof HTMLInputElement) {
       tokenInput.value = sessionStorage.getItem(storageKey) ?? "";
@@ -61,49 +122,108 @@ import BaseLayout from "@layouts/BaseLayout.astro";
     }
 
     function getStatus() {
-      return statusInput instanceof HTMLSelectElement ? statusInput.value : "pending";
+      const statusInput = root?.querySelector("[data-admin-status]:checked");
+      return statusInput instanceof HTMLInputElement ? statusInput.value : "pending";
+    }
+
+    function getQuery() {
+      return queryInput instanceof HTMLInputElement ? queryInput.value.trim() : "";
     }
 
     function setNote(message: string) {
       if (note) note.textContent = message;
     }
 
+    function formatDateTime(value: string | null) {
+      if (!value) return "";
+      return new Date(value).toLocaleString("zh-CN");
+    }
+
+    function createPostElement(slug: string) {
+      const post = postBySlug.get(slug);
+      const element = document.createElement(post ? "a" : "span");
+      element.className = "admin-post-link";
+      element.textContent = post ? post.title : slug;
+      element.title = slug;
+
+      if (post && element instanceof HTMLAnchorElement) {
+        element.href = post.url;
+      }
+
+      return element;
+    }
+
+    function renderContact(comment: AdminComment) {
+      const contact = document.createElement("p");
+      contact.className = "admin-contact form-note";
+
+      const email = comment.author_email ? `邮箱：${comment.author_email}` : "邮箱：未留";
+      const website = comment.author_website ? `网站：${comment.author_website}` : "网站：未留";
+      contact.textContent = `${email} · ${website}`;
+
+      return contact;
+    }
+
     function renderComment(comment: AdminComment) {
       const item = document.createElement("article");
       item.className = "admin-comment";
 
-      const meta = document.createElement("p");
-      meta.className = "form-note";
-      meta.textContent = `${comment.post_slug} · ${new Date(comment.created_at).toLocaleString("zh-CN")}`;
+      const meta = document.createElement("div");
+      meta.className = "admin-comment-meta";
+
+      const status = document.createElement("span");
+      status.className = `status-badge status-${comment.status}`;
+      status.textContent = statusLabels[comment.status] ?? comment.status;
+
+      const post = createPostElement(comment.post_slug);
+
+      const createdAt = document.createElement("time");
+      createdAt.dateTime = comment.created_at;
+      createdAt.textContent = formatDateTime(comment.created_at);
+
+      meta.append(status, post, createdAt);
+
+      if (comment.reviewed_at) {
+        const reviewedAt = document.createElement("span");
+        reviewedAt.textContent = `审核：${formatDateTime(comment.reviewed_at)}`;
+        meta.append(reviewedAt);
+      }
 
       const author = document.createElement("h2");
-      author.className = "section-heading";
+      author.className = "admin-comment-author";
       author.textContent = comment.author_name;
 
       const body = document.createElement("p");
+      body.className = "admin-comment-body";
       body.textContent = comment.body;
 
+      const contact = renderContact(comment);
       const actions = document.createElement("div");
       actions.className = "admin-actions";
 
       for (const action of [
-        ["approved", "通过", "primary-button"],
-        ["rejected", "拒绝", "ghost-button"],
-        ["pending", "退回待审", "ghost-button"]
+        ["approved", "primary-button"],
+        ["rejected", "ghost-button"],
+        ["pending", "ghost-button"]
       ] as const) {
         const button = document.createElement("button");
-        button.className = action[2];
+        button.className = action[1];
         button.type = "button";
         button.dataset.nextStatus = action[0];
-        button.textContent = action[1];
+        button.disabled = comment.status === action[0];
+        button.textContent =
+          comment.status === action[0]
+            ? `${actionLabels[action[0]]}（当前）`
+            : actionLabels[action[0]];
         actions.append(button);
       }
 
-      item.append(meta, author, body, actions);
+      item.append(meta, author, body, contact, actions);
 
       for (const button of item.querySelectorAll("[data-next-status]")) {
         button.addEventListener("click", async () => {
           if (!(button instanceof HTMLButtonElement)) return;
+          button.disabled = true;
           await updateComment(comment.id, button.dataset.nextStatus);
         });
       }
@@ -123,22 +243,36 @@ import BaseLayout from "@layouts/BaseLayout.astro";
       if (list) list.innerHTML = "";
 
       try {
-        const response = await fetch(`/api/admin/comments?status=${encodeURIComponent(getStatus())}`, {
+        const params = new URLSearchParams({ status: getStatus() });
+        const query = getQuery();
+
+        if (query) {
+          params.set("q", query);
+        }
+
+        const response = await fetch(`/api/admin/comments?${params.toString()}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.message ?? "load failed");
+        const comments = Array.isArray(payload.comments) ? payload.comments : [];
 
         if (list) {
           list.innerHTML = "";
-          for (const comment of payload.comments) {
+          for (const comment of comments) {
             list.append(renderComment(comment));
           }
         }
 
-        setNote(payload.comments.length ? `已载入 ${payload.comments.length} 条评论。` : "没有评论。");
-      } catch {
-        setNote("载入失败，请检查 token 和环境变量。");
+        const searchSuffix = query ? `，关键词“${query}”` : "";
+        setNote(
+          comments.length
+            ? `已载入 ${comments.length} 条${statusLabels[getStatus()]}评论${searchSuffix}。`
+            : `没有符合条件的${statusLabels[getStatus()]}评论${searchSuffix}。`
+        );
+      } catch (error) {
+        const message = error instanceof Error && error.message ? error.message : "请检查 token 和环境变量。";
+        setNote(`载入失败：${message}`);
       }
     }
 
@@ -165,7 +299,15 @@ import BaseLayout from "@layouts/BaseLayout.astro";
       }
     }
 
-    loadButton?.addEventListener("click", loadComments);
-    statusInput?.addEventListener("change", loadComments);
+    if (form instanceof HTMLFormElement) {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        loadComments();
+      });
+    }
+
+    for (const input of root?.querySelectorAll("[data-admin-status]") ?? []) {
+      input.addEventListener("change", loadComments);
+    }
   </script>
 </BaseLayout>
