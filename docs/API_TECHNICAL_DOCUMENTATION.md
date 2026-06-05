@@ -62,6 +62,16 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 
 不要在日志、截图、提交内容或浏览器端代码中暴露 `SUPABASE_SERVICE_ROLE_KEY`、`BLOG_ADMIN_TOKEN` 或数据库连接信息。
 
+评论防刷相关环境变量：
+
+| 变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `COMMENT_RATE_LIMIT_POST_WINDOW_SECONDS` | `600` | 同一 IP hash + 同一文章的提交限制窗口 |
+| `COMMENT_RATE_LIMIT_SITE_WINDOW_SECONDS` | `3600` | 同一 IP hash 全站提交数量统计窗口 |
+| `COMMENT_RATE_LIMIT_SITE_MAX` | `5` | 全站窗口内允许的评论数 |
+| `COMMENT_DUPLICATE_WINDOW_SECONDS` | `86400` | 重复正文检测窗口 |
+| `COMMENT_SPAM_WORDS` | 空 | 逗号或换行分隔的敏感词/垃圾词，命中时直接拒绝 |
+
 ## 3. API 清单
 
 | Endpoint | 方法 | 鉴权 | 用途 |
@@ -263,11 +273,18 @@ Query 参数：
 
 - 成功创建：`201`
 - honeypot 命中：返回 `200`，但不写入真实评论。
+- 字段校验或垃圾词命中：`400`
+- 同 IP hash 提交太频繁：`429`
+- 重复正文：`409`
 
 行为说明：
 
 - 评论默认 `pending`，审核通过后才公开展示。
-- 服务端会记录 `user_agent` 和经过简单 hash 的 IP 信息，用于后续排查垃圾评论。
+- 服务端会记录 `user_agent` 和经过简单 hash 的 IP 信息，用于后续排查垃圾评论；不会保存或返回原始 IP。
+- 同一 IP hash + 同一文章默认 10 分钟只允许提交 1 条评论。
+- 同一 IP hash 全站默认 1 小时最多提交 5 条评论。
+- 重复正文会先做空白归一化和大小写归一化，默认 24 小时内拒绝重复提交；缺少 IP hash 时退化为同文章近期重复检测。
+- `COMMENT_SPAM_WORDS` 命中昵称、正文或网站输入时，服务端直接返回中文错误提示，不写入审核队列。
 - 提交评论时会确保 `blog_post_stats` 中存在对应文章统计行。
 
 ## 6. 后台审核 API
@@ -509,6 +526,11 @@ Sitemap: https://macondo-co.netlify.app/sitemap.xml
 | --- | --- |
 | `increment_blog_post_view(p_slug text)` | 创建或更新文章阅读量 |
 | `register_blog_post_like(p_slug text, p_visitor_id text)` | 注册点赞并返回最新统计 |
+
+评论防刷相关索引：
+
+- `blog_comments_ip_post_created_idx`：支持同 IP hash + 同文章近期提交查询。
+- `blog_comments_ip_created_idx`：支持同 IP hash 全站近期提交查询。
 
 权限规则：
 

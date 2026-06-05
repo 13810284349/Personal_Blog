@@ -240,6 +240,8 @@ natural-selection-liked:<slug>
 - 评论表单提交到 `POST /api/comments`。
 - 评论提交成功后只提示“进入审核队列”，不会立即公开展示。
 - 表单包含 honeypot 字段 `company`，用于拦截基础垃圾提交。
+- 服务端按 `ip_hash`、文章 slug 和 `created_at` 做提交限流，并按归一化正文拦截近期重复评论。
+- `COMMENT_SPAM_WORDS` 命中昵称、正文或网站输入时直接拒绝，不写入审核队列。
 
 公开评论只包含：
 
@@ -350,7 +352,7 @@ sequenceDiagram
   participant AF as Admin API
 
   B->>F: POST /api/comments
-  F->>F: validate fields + honeypot
+  F->>F: validate fields + honeypot + anti-spam checks
   F->>DB: insert comment status=pending
   F-->>B: comment queued
 
@@ -427,11 +429,14 @@ unique (post_slug, visitor_id)
 - `blog_post_likes_post_slug_idx`
 - `blog_comments_post_status_created_idx`
 - `blog_comments_status_created_idx`
+- `blog_comments_ip_post_created_idx`
+- `blog_comments_ip_created_idx`
 
 这些索引用于：
 
 - 按文章查询评论。
 - 按状态拉取审核队列。
+- 按 IP hash 查询同文章和全站近期评论，支撑服务端限流。
 - 按文章统计 approved 评论数量。
 
 ### 10.3 函数与触发器
@@ -461,6 +466,11 @@ RPC 函数使用 `security definer`，并将执行权限限制到 `service_role`
 | `SUPABASE_SERVICE_ROLE_KEY` | 否 | 服务端访问数据库 |
 | `BLOG_ADMIN_TOKEN` | 否 | 评论审核 API 鉴权 |
 | `PUBLIC_SITE_URL` | 是 | 公开站点 URL |
+| `COMMENT_RATE_LIMIT_POST_WINDOW_SECONDS` | 是 | 同 IP hash + 同文章限流窗口，默认 600 秒 |
+| `COMMENT_RATE_LIMIT_SITE_WINDOW_SECONDS` | 是 | 同 IP hash 全站限流窗口，默认 3600 秒 |
+| `COMMENT_RATE_LIMIT_SITE_MAX` | 是 | 全站窗口内允许评论数，默认 5 |
+| `COMMENT_DUPLICATE_WINDOW_SECONDS` | 是 | 重复正文检测窗口，默认 86400 秒 |
+| `COMMENT_SPAM_WORDS` | 是 | 逗号或换行分隔的敏感词/垃圾词 |
 
 原则：
 
@@ -493,6 +503,7 @@ API 层校验包括：
 - 评论昵称、正文长度。
 - email 格式。
 - URL 协议必须为 `http:` 或 `https:`。
+- 评论敏感词、同 IP hash 提交频率和近期重复正文。
 - visitor id 长度和字符集。
 - admin token 完全匹配。
 
@@ -503,13 +514,13 @@ API 层校验包括：
 当前版本仍有几个有意识的轻量化取舍：
 
 - `hashIp()` 是简单 hash，不是加盐密码学 hash，不适合作为强匿名化方案。
-- 评论防滥用只有 honeypot 和审核队列，没有验证码、频率限制或 WAF 规则。
+- 评论防滥用已有 honeypot、服务端限流、重复正文检测和环境变量词表，但没有验证码或 WAF 规则。
 - 后台审核是 token 模式，不是完整用户登录。
 
 如果访问量增加，应优先补充：
 
 - IP hash 加盐或更稳妥的匿名化策略。
-- 评论提交频率限制。
+- 更强的跨区域/边缘限流。
 - Netlify/Vercel 风格的 server-side rate limit 或边缘防护。
 - 正式身份认证。
 

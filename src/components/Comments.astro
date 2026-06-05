@@ -140,12 +140,20 @@ const { slug } = Astro.props;
           })
         });
         const payload = await response.json();
-        if (!response.ok) throw new Error(payload.message ?? "comment failed");
+        if (!response.ok) {
+          const message = typeof payload.message === "string" ? payload.message : "";
+          throw new Error(message ? `api:${message}` : "comment failed");
+        }
 
         form.reset();
         if (note) note.textContent = "评论已进入审核队列。";
-      } catch {
-        if (note) note.textContent = "评论提交失败，请稍后再试。";
+      } catch (error) {
+        if (note) {
+          note.textContent =
+            error instanceof Error && error.message.startsWith("api:")
+              ? error.message.slice(4)
+              : "评论提交失败，请稍后再试。";
+        }
       } finally {
         if (submit instanceof HTMLButtonElement) submit.disabled = false;
       }

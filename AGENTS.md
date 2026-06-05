@@ -139,6 +139,8 @@ cover: /optional-cover.jpg # 可选，公开可访问的封面/社交分享图
 - 不要把 `SUPABASE_SERVICE_ROLE_KEY` 暴露给浏览器端代码。
 - 不要提交 `.env`、数据库连接串、service role key、admin token。
 - 评论默认 `pending`，只有 `approved` 公开展示。
+- 公开评论提交会按 `ip_hash`、文章 slug、`created_at` 做服务端限流和重复正文检测；不要记录或返回原始 IP。
+- `COMMENT_SPAM_WORDS` 命中时直接拒绝评论，不写入审核队列；词表通过环境变量维护，不新增后台。
 - 后台审核接口使用 `Authorization: Bearer <BLOG_ADMIN_TOKEN>`。
 - 后台审核列表可扩展 query 参数，但优先复用 `blog_comments` 和现有 `/api/admin/comments`，不要为了筛选/搜索新增数据库表。
 - 改 Supabase schema 前，先查看现有迁移，优先新增迁移，不要直接改已应用迁移。
@@ -152,12 +154,22 @@ SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-rotated-service-role-key
 BLOG_ADMIN_TOKEN=replace-with-a-long-random-token
 PUBLIC_SITE_URL=https://macondo-co.netlify.app
+COMMENT_RATE_LIMIT_POST_WINDOW_SECONDS=600
+COMMENT_RATE_LIMIT_SITE_WINDOW_SECONDS=3600
+COMMENT_RATE_LIMIT_SITE_MAX=5
+COMMENT_DUPLICATE_WINDOW_SECONDS=86400
+COMMENT_SPAM_WORDS=
 ```
 
 - `SUPABASE_URL`：服务端 Supabase client 使用。
 - `SUPABASE_SERVICE_ROLE_KEY`：仅服务端 API/Netlify Functions 使用，必须保密。
 - `BLOG_ADMIN_TOKEN`：评论审核页调用后台接口使用，必须保密。
 - `PUBLIC_SITE_URL`：公开站点 URL，可放在客户端可见环境变量中。
+- `COMMENT_RATE_LIMIT_POST_WINDOW_SECONDS`：同一 IP hash + 同一文章的评论提交窗口，默认 600 秒。
+- `COMMENT_RATE_LIMIT_SITE_WINDOW_SECONDS`：同一 IP hash 全站评论提交窗口，默认 3600 秒。
+- `COMMENT_RATE_LIMIT_SITE_MAX`：同一 IP hash 在全站窗口内允许提交的评论数，默认 5。
+- `COMMENT_DUPLICATE_WINDOW_SECONDS`：重复正文检测窗口，默认 86400 秒。
+- `COMMENT_SPAM_WORDS`：逗号或换行分隔的敏感词/垃圾词；命中时服务端直接拒绝，不写入评论表。
 
 ## Netlify
 
