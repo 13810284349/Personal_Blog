@@ -1,0 +1,262 @@
+---
+title: "大模型发展简史"
+description: "从统计语言模型、词向量、Transformer、规模化训练到 ChatGPT、Agent 和端侧模型，梳理大模型为什么会在近几年爆发。"
+publishedAt: 2026-06-05
+tags: ["AI", "大模型", "科技史", "Transformer"]
+draft: false
+---
+
+为什么是 2022 年？
+
+很多人第一次认真注意到大模型，是从 ChatGPT 开始的。一个网页里的聊天框，突然可以解释代码、改写文章、总结资料、翻译句子，还能在你追问时接着往下谈。它不像过去那些固定问答系统，也不像搜索引擎的结果页。它更像一个可以被临时叫住的助手。
+
+这种体验很容易让人产生一种错觉：大模型好像是在 2022 年突然出现的。
+
+但如果它真是突然出现的，另一个问题就很难解释：为什么它一出现，就已经能处理这么多不同任务？为什么它不是只会聊天，而是能写代码、做题、读图、调用工具、生成计划，甚至被塞进办公软件、搜索框、手机和开发环境里？
+
+答案是，2022 年的突然，是产品体验上的突然，不是技术积累上的突然。
+
+大模型的爆发，更像一次长期合流。语言先被看成概率问题，词后来被表示成向量，神经网络学会从大规模文本里预训练，Transformer 让训练更容易并行，算力和数据把模型推到足够大的尺度，RLHF 又把会续写的模型调成会配合人的助手。最后，聊天框给了它一个足够低门槛的入口。
+
+这篇文章不试图列完所有模型，也不判断谁赢了。它只沿着几条关键因果链，解释大模型为什么会在近几年爆发。
+
+本文信息截至 2026-06-05。
+
+## 语言先被看成概率问题
+
+大模型最朴素的起点，不是“理解”，而是“预测”。
+
+给你一句话：“我今天早上喝了一杯”，下一个词可能是“咖啡”，也可能是“牛奶”，但大概率不会是“石头”。语言里有大量这样的统计规律。人并不总是意识到它们，但我们每天都在使用它们。
+
+早在 1951 年，Claude Shannon 在《[Prediction and Entropy of Printed English](https://www.nokia.com/bell-labs/publications-and-media/publications/prediction-and-entropy-of-printed-english/)》里就讨论过英文文本的可预测性。这个工作并不是今天意义上的大语言模型，却已经把一个很重要的思想摆在了桌面上：语言不是完全随机的，它可以被压缩、估计和预测。
+
+后来，n-gram 语言模型把这个想法变成了更工程化的方法。所谓 n-gram，可以简单理解成看前面几个词，估计下一个词出现的概率。如果“我喜欢喝”后面经常接“咖啡”，模型就会给“咖啡”更高概率。这种方法听起来朴素，但在语音识别、输入法、机器翻译里长期有效。
+
+统计机器翻译也是这个阶段的重要成果。IBM 研究者在 1990 年发表的《[A Statistical Approach to Machine Translation](https://aclanthology.org/J90-2002/)》把翻译问题放进概率框架里：给定一个源语言句子，找到最可能的目标语言句子。机器不必先拥有一套完整语法规则，而可以从大量双语文本里学习词与词、句与句之间的对应关系。
+
+这一路线的意义在于，它把语言处理从手写规则推向了数据驱动。
+
+但统计模型也有很明显的天花板。
+
+第一，稀疏。语言组合太多了，很多词组在训练数据里根本没出现过。模型如果只记频率，就很难处理没见过的新组合。
+
+第二，上下文短。n-gram 往往只看附近几个词。它能猜出常见搭配，却很难理解跨越很远的指代、转折和结构。
+
+第三，语义弱。对传统统计模型来说，“国王”和“女王”只是两个不同符号。它很难自然知道它们在意义上接近，也很难知道“巴黎”和“法国”的关系类似于“东京”和“日本”。
+
+所以，早期语言模型已经抓住了一个核心问题：预测下一个符号。但它还缺少一种更柔软的语言表示方式。
+
+## 词从符号变成向量
+
+下一步，是让词不再只是词表里的编号。
+
+2003 年，Bengio 等人在《[A Neural Probabilistic Language Model](https://www.jmlr.org/papers/volume3/bengio03a/bengio03a.pdf)》中提出用神经网络学习词的分布式表示。一个词不再只是一个离散 ID，而可以被映射成一个向量。这个向量不是人工写出来的定义，而是在预测语言的过程中学出来的。
+
+这件事听起来抽象，但影响很大。
+
+如果每个词都有一个向量，模型就可以在连续空间里比较词与词的距离。意思相近、用法相似的词，可能会被放到相近的位置。这样一来，模型就不必只靠死记硬背。即使某个词组没有在训练数据里出现过，模型也可能根据相似词的经验做出合理推断。
+
+2013 年，word2vec 让词向量变得更广为人知。Mikolov 等人的《[Efficient Estimation of Word Representations in Vector Space](https://research.google/pubs/pub41224/)》展示了用相对高效的方法，从大规模文本中学习词表示。后来很多人第一次直观感受到“语义可以被向量捕捉”，正是从 word2vec 的类比实验开始。
+
+词向量解决了一部分稀疏问题，但句子不是一袋词。词的顺序、上下文和长距离关系仍然重要。
+
+于是，RNN、LSTM、GRU 和 seq2seq 模型在一段时间里成为主流。它们适合处理序列：一个词接一个词读进去，把状态传下去。2014 年的《[Sequence to Sequence Learning with Neural Networks](https://arxiv.org/abs/1409.3215)》推动了编码器-解码器框架在机器翻译中的使用。模型先读完整个输入句子，再生成目标句子。
+
+这一阶段还有一个关键进展：attention。
+
+早期 attention 并不是 Transformer 的专属发明。它先是在神经机器翻译中出现，用来让解码器在生成某个词时回看输入句子的不同位置。模型不必把整句话压进一个固定长度状态，而可以按需关注源句中的相关部分。
+
+这已经接近后来大模型的核心直觉：理解一个词，不只看它前面的那个词，而要看它和上下文里其他位置的关系。
+
+但 RNN 和 LSTM 的问题也很顽固。它们天然按顺序计算，训练时很难把一个句子里的所有位置完全并行展开。句首信息要影响句尾，仍然要经过很多步传递。模型能处理长距离依赖，但路径比较长，训练也不够适合继续放大。
+
+语言已经变成了向量和神经网络问题。下一步，需要一个更适合规模化的主干。
+
+## Transformer 改变了序列建模的主干
+
+2017 年，《[Attention Is All You Need](https://research.google/pubs/attention-is-all-you-need/)》提出 Transformer。
+
+这篇论文的锋利之处，不是第一次使用注意力，而是把注意力从辅助模块推成主干。它基本拿掉了循环和卷积，让序列中每个位置都可以通过自注意力直接看见其他位置。
+
+这带来三个重要变化。
+
+第一，训练更容易并行。RNN 必须按时间步往前走，而 Transformer 可以同时计算一句话里所有 token 之间的注意力关系。GPU 和后来的大规模加速集群，正适合这种矩阵计算。
+
+第二，长距离路径变短。在 RNN 中，位置 1 影响位置 50，需要穿过很多步；在自注意力中，它们可以在一层里直接建立联系。
+
+第三，模型结构足够通用。只要把文本切成 token，Transformer 就可以在不同任务上使用。后来图像、音频、视频、多模态模型也大量借用了类似思想。
+
+Transformer 之后，预训练语言模型迅速分出两条有代表性的路线。
+
+一条是 BERT。Google 在 2018 年提出《[BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding](https://arxiv.org/abs/1810.04805)》。BERT 更像一个强大的阅读器，用双向上下文学习文本表示，再迁移到分类、问答、检索等理解任务上。
+
+另一条是 GPT。OpenAI 2018 年发布的《[Improving Language Understanding by Generative Pre-Training](https://openai.com/index/language-unsupervised/)》使用 Transformer decoder 做生成式预训练。它沿着“给定前文，预测后文”的方向走下去。2019 年的 [GPT-2](https://openai.com/index/better-language-models) 又进一步展示了更大模型在无监督多任务上的潜力。
+
+BERT 和 GPT 的差异，可以粗略理解为：BERT 更偏向把文本读懂，GPT 更偏向把文本接着写下去。
+
+当然，这只是方便理解的简化。真正重要的是，大家逐渐接受了一个新范式：先用海量无标注文本预训练一个通用模型，再用微调、提示或指令数据把它迁移到具体任务。
+
+这时，大模型的雏形已经出现了。它不再是为某个任务从零训练的小系统，而是先学一个通用语言底座，再在不同场景里被调用。
+
+## 规模化把语言模型推向通用能力
+
+如果说 Transformer 给了模型一副适合放大的骨架，那么 2020 年前后，行业开始更认真地相信：放大本身就是一种方法。
+
+OpenAI 在《[Scaling Laws for Neural Language Models](https://arxiv.org/abs/2001.08361)》中研究了模型规模、数据规模、训练计算量和损失之间的关系。它给产业界传递了一个很强的信号：只要训练方式没有明显走偏，继续增加模型、数据和算力，性能往往会以可预测的方式改善。
+
+同一年，GPT-3 出现。OpenAI 在《[Language Models are Few-Shot Learners](https://openai.com/index/language-models-are-few-shot-learners/)》中展示了一个 1750 亿参数的自回归语言模型。GPT-3 的重要性不只是参数大，而是它让很多人第一次看到：一个足够大的预训练模型，可以在提示词里看几个例子，就完成过去需要专门训练的任务。
+
+这就是 few-shot 和 in-context learning 让人兴奋的地方。模型好像不是在为每个任务重新学习参数，而是在上下文里临时理解任务格式。
+
+与此同时，T5 把文本任务统一成 text-to-text 形式；RAG 把模型生成和外部检索结合起来；LoRA 这类参数高效微调方法降低了适配大模型的成本。这些工作分别解决不同问题：任务形式如何统一，模型知识如何补充，昂贵模型如何被更便宜地定制。
+
+不过，规模化并不等于无脑变大。
+
+DeepMind 2022 年的 Chinchilla 论文《[Training Compute-Optimal Large Language Models](https://arxiv.org/abs/2203.15556)》提醒行业：在固定计算预算下，模型参数和训练数据需要更合理的配比。一个参数很多但训练 token 不够的模型，可能不如一个参数少一些但数据更充分的模型。
+
+这让“大模型”的含义发生了微妙变化。
+
+它不再只是参数数量竞赛，而是模型大小、数据质量、训练 token、计算预算、推理成本和服务工程之间的整体权衡。后来的很多模型进步，都来自这种更工程化的理解：同样的算力，怎样训练得更充分；同样的能力，怎样部署得更便宜；同样的模型，怎样服务更多用户。
+
+这也解释了为什么大模型爆发不是单纯的算法故事。没有算力集群、分布式训练、数据清洗、混合精度、并行策略、推理优化和云端服务能力，论文里的模型很难变成每个人都能打开的产品。
+
+## 从会续写到会帮忙
+
+GPT-3 已经很强，但它还不是一个天然好用的助手。
+
+预训练语言模型学到的是“接着写”。你给它一段文本，它会生成后面可能出现的文本。这个目标很强，因为世界上大量任务都可以被包装成文本补全。但它也有问题：用户要的是回答、解释、拒绝不合理请求、承认不确定，而不是任何看起来像后文的东西。
+
+这就是 InstructGPT 和 RLHF 的位置。
+
+OpenAI 在《[Aligning language models to follow instructions](https://openai.com/index/instruction-following/)》和论文《[Training language models to follow instructions with human feedback](https://arxiv.org/abs/2203.02155)》中使用人类反馈训练模型，让它更愿意遵循指令。大致流程可以分三步：先用人工示范做监督微调，再让人类比较不同回答的好坏，训练奖励模型，最后用强化学习让模型更接近人类偏好的回答。
+
+RLHF 不是让模型凭空获得所有能力。更准确地说，它把预训练中已经存在但不稳定、不好调用的能力，整理成更像助手的行为。
+
+2022 年 11 月 30 日，OpenAI 发布 [ChatGPT](https://openai.com/blog/chatgpt/)。官方介绍里强调了对话形式：它可以回答追问、承认错误、质疑错误前提，并拒绝不合适的请求。今天看，这些能力并不完美，幻觉、偏见、过度迎合和安全边界问题仍然存在。但在当时，它已经足以改变公众对 AI 的直觉。
+
+ChatGPT 的历史意义，不只是“模型更强了”。
+
+它把一个原本需要 API、提示词技巧和技术背景才能较好使用的模型，放进了所有人都能理解的聊天界面。这个入口极其重要。用户不需要知道 Transformer，也不需要知道 few-shot。只要像和人说话一样输入问题，就能得到回应。
+
+从这里开始，大模型不再只是研究者和开发者的对象，而变成了大众软件体验的一部分。
+
+## 多模态、工具调用和 Agent 化
+
+ChatGPT 之后，大模型竞争很快从“能不能聊天”扩展到“能不能看、听、写代码、查资料、调用工具、完成任务”。
+
+2023 年，OpenAI 发布 [GPT-4](https://openai.com/index/gpt-4-research/)。同年，Google 发布 [Gemini 1.0](https://blog.google/technology/ai/google-gemini-ai/)，强调从设计上面向多模态。到了 2024 年，OpenAI 的 [GPT-4o System Card](https://openai.com/index/gpt-4o-system-card/) 把实时语音、图像和文本交互推到更明显的位置；Google 的 [Gemini 1.5 报告](https://storage.googleapis.com/deepmind-media/gemini/gemini_v1_5_report.pdf) 强调长上下文和多模态理解；[Gemini 2.0](https://blog.google/innovation-and-ai/models-and-research/google-deepmind/google-gemini-ai-update-december-2024/) 又把自己放进“agentic era”的叙事里。
+
+多模态的意义，是模型开始脱离纯文本框。
+
+人和世界交互，本来就不是只靠文字。我们看屏幕、听声音、读表格、点按钮、拖文件、打开网页。模型如果只能处理文本，就只能做语言层面的助手；如果能理解图像、音频、视频和界面，它才更接近通用交互层。
+
+工具调用则解决另一个问题：模型不应该把所有东西都记在参数里。
+
+参数里的知识会过期，也可能记错。现实任务还需要查数据库、调用 API、读本地文件、运行代码、搜索网页、操作浏览器。RAG、函数调用和工具使用，就是让模型在需要时向外部系统取信息或执行动作。Meta 的 [Toolformer](https://arxiv.org/abs/2302.04761) 这类研究，正是在探索语言模型如何学会调用工具。
+
+到 2024 和 2025 年，Agent 成为一个高频词。Anthropic 在 2024 年推出 Claude 的 [computer use](https://www.anthropic.com/news/3-5-models-and-computer-use) 公测能力，让模型尝试观察屏幕并操作计算机。OpenAI 在 2025 年推出 [Operator](https://openai.com/index/introducing-operator/)，后来又发布构建 Agent 的 [Responses API 和 Agents SDK](https://openai.com/index/new-tools-for-building-agents/)。Google 在 Gemini 2.0 中展示 Project Astra、Project Mariner、Jules 等面向助手和浏览器操作的实验。
+
+但 Agent 不是魔法。
+
+它不是“模型更聪明，所以自动就能替你干活”。它更像一套工程组合：模型负责理解意图和做计划，工具负责访问真实世界，环境提供状态反馈，权限系统限制危险动作，日志和人工确认负责可追踪性。
+
+如果没有边界，Agent 很容易变成不可控的自动化入口；如果边界太死，它又只是一个换皮脚本。真正困难的地方，恰恰在这两者之间。
+
+## 开源、小模型与端侧
+
+大模型发展还有另一条容易被忽略的线：不是所有进步都指向“更大的闭源模型”。
+
+2023 年，Meta 发布 LLaMA，随后发布 [Llama 2](https://ai.meta.com/blog/llama-2/)，开放给研究和商业使用。2024 年，[Llama 3](https://ai.meta.com/blog/meta-llama-3/) 继续推动开放权重生态。2025 年，[Llama 4](https://ai.meta.com/blog/llama-4-multimodal-intelligence/) 又把多模态和 MoE 架构放进开放模型叙事里。
+
+开放权重模型的意义，不只是“免费”。它让更多开发者、研究者和企业可以在本地部署、微调、蒸馏、量化、审计和组合模型。很多真实业务并不需要最强模型，而需要可控、便宜、延迟低、能放进自己系统里的模型。
+
+DeepSeek-R1 是另一个值得写进历史的节点。DeepSeek-AI 在 2025 年提交的《[DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning](https://arxiv.org/abs/2501.12948)》把推理能力、强化学习和开源蒸馏模型放在一起讨论。这里不必把它写成某种神话。它更重要的意义是提醒行业：提升模型能力不只有继续堆闭源巨型模型一条路，训练方法、数据策略、蒸馏和开放生态本身也会改变竞争格局。
+
+小模型和端侧模型也在变得重要。
+
+Microsoft 在 2024 年发布 [Phi-3](https://azure.microsoft.com/en-us/blog/introducing-phi-3-redefining-whats-possible-with-slms/)，强调小语言模型在成本和部署上的优势。Google 在 Pixel 8 Pro 中引入 [Gemini Nano](https://blog.google/products-and-platforms/devices/pixel/pixel-feature-drop-december-2023/) 来支持端侧生成式 AI 功能。Apple 在 [Apple Intelligence Foundation Language Models](https://machinelearning.apple.com/research/apple-intelligence-foundation-language-models) 中介绍了面向设备端和私有云计算的基础模型，其中包括约 30 亿参数的端侧模型。
+
+端侧模型解决的是另一组问题：隐私、延迟、离线、成本和个性化。
+
+很多任务不需要把数据传到远端，也不需要调用最强模型。比如改写一句短消息、总结一条通知、识别屏幕上的上下文、在本地执行轻量动作。模型越靠近设备，就越有机会成为操作系统和应用的一部分。
+
+所以，大模型的发展不会只有一条“越大越好”的路。更可能出现的是分层：云端旗舰模型处理复杂推理和重任务，中型模型负责高频应用，小模型和端侧模型处理隐私敏感、低延迟、强本地化的场景。
+
+## 一张简化时间线
+
+下面这张表不是完整历史，只标出本文主线里比较关键的节点。
+
+| 时间 | 节点 | 意义 |
+|---|---|---|
+| 1951 | Shannon 研究英文文本预测与熵 | 语言可以被统计预测，是语言模型思想的早期源头。 |
+| 1990 | IBM 统计机器翻译论文 | 机器翻译进入统计建模时代，数据和概率成为主角。 |
+| 2003 | Bengio 等提出神经概率语言模型 | 用神经网络学习词的分布式表示，缓解离散符号稀疏问题。 |
+| 2013 | word2vec | 词向量普及，语义关系开始以向量空间形式被建模。 |
+| 2014 | seq2seq | 编码器-解码器框架推动神经机器翻译。 |
+| 2017 | Transformer | 自注意力替代循环结构，打开大规模并行训练空间。 |
+| 2018 | BERT 与 GPT-1 | 预训练语言模型路线成形，理解路线和生成路线分化。 |
+| 2019 | GPT-2、T5 | 更大规模预训练展示出更强迁移能力，文本到文本统一范式成熟。 |
+| 2020 | GPT-3、Scaling Laws、RAG | 少样本能力、规模化规律和检索增强成为后续路线基础。 |
+| 2021 | LoRA | 参数高效微调降低适配大模型的成本。 |
+| 2022 | InstructGPT、Chinchilla、CoT、ChatGPT | 对齐、数据配比、推理提示和产品化在同一年集中显影。 |
+| 2023 | GPT-4、Llama 2、Gemini 1.0、Toolformer | 闭源旗舰、开放权重、多模态和工具使用并行推进。 |
+| 2024 | GPT-4o、Gemini 1.5/2.0、Claude computer use、Phi-3、Apple Intelligence | 长上下文、实时多模态、Agent 雏形、小模型和端侧部署成为焦点。 |
+| 2025 | DeepSeek-R1、Claude 4、Llama 4、GPT-5、Gemini 3、Operator/Agents SDK | 推理模型、开放生态、Agent 产品和下一代旗舰模型继续竞争。 |
+| 2026-06-05 | 本文截止点 | 最新模型排行、用户规模和 benchmark 声明仍应以官方来源或论文为准。 |
+
+## 大模型成为一种基础设施
+
+回头看，大模型真正改变的不是“机器终于会写几段话”。
+
+写作只是它最容易被看见的能力。更深的变化，是软件开始围绕模型重新组织。
+
+过去的软件往往要求人适应界面。你要知道按钮在哪里，菜单叫什么，字段怎么填，查询语法怎么写。大模型出现后，人可以用自然语言描述意图，模型再去连接搜索、数据库、代码解释器、浏览器、文档、工作流和设备能力。
+
+这并不意味着传统软件会消失，也不意味着模型会自动可靠。恰恰相反，越是走向真实工作流，越需要权限、审计、引用、回滚、评估和人工确认。大模型如果成为基础设施，它就不能只是一个会说话的黑箱。
+
+到 2026 年前后，竞争重点已经从聊天扩展到搜索、办公、编程、Agent、手机、浏览器和企业流程。模型能力当然还重要，但同样重要的是成本、延迟、上下文长度、工具生态、安全边界和部署位置。
+
+所以，如果要用一句话概括这段历史，我会这样说：
+
+大模型不是突然出现的。它是语言统计化、表示学习、Transformer、规模化工程、人类反馈和产品入口长期合流之后，第一次以普通人能直接感受到的方式浮出水面。
+
+这也是为什么 2022 年看起来像一个起点。
+
+它其实更像一个出口。
+
+## 参考
+
+- Claude E. Shannon, [Prediction and Entropy of Printed English](https://www.nokia.com/bell-labs/publications-and-media/publications/prediction-and-entropy-of-printed-english/), 1951.
+- Brown et al., [A Statistical Approach to Machine Translation](https://aclanthology.org/J90-2002/), 1990.
+- Bengio et al., [A Neural Probabilistic Language Model](https://www.jmlr.org/papers/volume3/bengio03a/bengio03a.pdf), 2003.
+- Mikolov et al., [Efficient Estimation of Word Representations in Vector Space](https://research.google/pubs/pub41224/), 2013.
+- Sutskever et al., [Sequence to Sequence Learning with Neural Networks](https://arxiv.org/abs/1409.3215), 2014.
+- Vaswani et al., [Attention Is All You Need](https://research.google/pubs/attention-is-all-you-need/), 2017.
+- Devlin et al., [BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding](https://arxiv.org/abs/1810.04805), 2018.
+- OpenAI, [Improving Language Understanding by Generative Pre-Training](https://openai.com/index/language-unsupervised/), 2018.
+- OpenAI, [Better language models and their implications](https://openai.com/index/better-language-models), 2019.
+- OpenAI, [Language Models are Few-Shot Learners](https://openai.com/index/language-models-are-few-shot-learners/), 2020.
+- Kaplan et al., [Scaling Laws for Neural Language Models](https://arxiv.org/abs/2001.08361), 2020.
+- Lewis et al., [Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks](https://arxiv.org/abs/2005.11401), 2020.
+- Hu et al., [LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685), 2021.
+- Ouyang et al., [Training language models to follow instructions with human feedback](https://arxiv.org/abs/2203.02155), 2022.
+- Hoffmann et al., [Training Compute-Optimal Large Language Models](https://arxiv.org/abs/2203.15556), 2022.
+- Wei et al., [Chain-of-Thought Prompting Elicits Reasoning in Large Language Models](https://arxiv.org/abs/2201.11903), 2022.
+- OpenAI, [Introducing ChatGPT](https://openai.com/blog/chatgpt/), 2022.
+- OpenAI, [GPT-4](https://openai.com/index/gpt-4-research/), 2023.
+- Meta AI, [Llama 2](https://ai.meta.com/blog/llama-2/), 2023.
+- Google, [Introducing Gemini](https://blog.google/technology/ai/google-gemini-ai/), 2023.
+- Schick et al., [Toolformer: Language Models Can Teach Themselves to Use Tools](https://arxiv.org/abs/2302.04761), 2023.
+- OpenAI, [GPT-4o System Card](https://openai.com/index/gpt-4o-system-card/), 2024.
+- Google, [Gemini 1.5 technical report](https://storage.googleapis.com/deepmind-media/gemini/gemini_v1_5_report.pdf), 2024.
+- Anthropic, [Introducing computer use](https://www.anthropic.com/news/3-5-models-and-computer-use), 2024.
+- Microsoft, [Introducing Phi-3](https://azure.microsoft.com/en-us/blog/introducing-phi-3-redefining-whats-possible-with-slms/), 2024.
+- Apple, [Apple Intelligence Foundation Language Models](https://machinelearning.apple.com/research/apple-intelligence-foundation-language-models), 2024.
+- Google, [Gemini 2.0](https://blog.google/innovation-and-ai/models-and-research/google-deepmind/google-gemini-ai-update-december-2024/), 2024.
+- DeepSeek-AI, [DeepSeek-R1](https://arxiv.org/abs/2501.12948), 2025.
+- Anthropic, [Claude 4](https://www.anthropic.com/news/claude-4), 2025.
+- Meta AI, [Llama 4](https://ai.meta.com/blog/llama-4-multimodal-intelligence/), 2025.
+- OpenAI, [Introducing Operator](https://openai.com/index/introducing-operator/), 2025.
+- OpenAI, [New tools for building agents](https://openai.com/index/new-tools-for-building-agents/), 2025.
+- OpenAI, [Introducing GPT-5](https://openai.com/index/introducing-gpt-5/), 2025.
+- Google, [Gemini 3: News and announcements](https://blog.google/products-and-platforms/products/gemini/gemini-3-collection/), 2025.
