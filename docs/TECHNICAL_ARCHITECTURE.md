@@ -15,7 +15,7 @@
 - 页面尽量静态化，降低运行成本，提高访问稳定性。
 - 互动功能不引入完整用户体系，保留轻量评论审核。
 - service role key 只存在于服务端运行环境，不进入浏览器端 bundle。
-- 架构保持可扩展，后续可继续加入搜索、订阅、图片优化、自动部署等能力。
+- 架构保持可扩展，后续可继续加入搜索、订阅、图片优化、deploy preview 与发布治理等能力。
 
 ## 2. 总体架构
 
@@ -560,7 +560,7 @@ export default defineConfig({
 
 ### 12.3 部署流程
 
-推荐流程：
+当前站点已连接 GitHub 到 Netlify，生产分支为 `main`。发布流程：
 
 ```bash
 npm run check
@@ -571,7 +571,9 @@ git commit -m "..."
 git push origin main
 ```
 
-如果 Netlify 未连接 GitHub 自动部署，手动部署时必须使用不含 `.env` 的干净临时 clone 或等价方式，避免上传本地密钥文件。
+`git push origin main` 后，Netlify 会自动拉取 GitHub commit，使用 `npm run build` 构建并发布 `dist`。部署完成后，Netlify Deploys 中应能看到 deploy 关联的 GitHub commit、branch 为 `main`，状态为 Published/Ready。
+
+禁止再使用上传式部署作为常规流程，避免把本地 `.env`、`.netlify/`、`dist/` 或临时构建产物误上传。Netlify 环境变量在站点配置中维护，不从本地 `.env` 同步。
 
 部署后验证：
 
@@ -631,7 +633,7 @@ curl -L https://macondo-co.netlify.app/about
 
 短期可做：
 
-- 连接 GitHub 到 Netlify，实现 push 后自动部署。
+- 验证并固化 Netlify deploy preview / branch deploy 策略。
 - 增加 RSS feed 和 sitemap。
 - 增加文章归档页。
 - 增加评论审核状态筛选和搜索。
@@ -677,4 +679,4 @@ curl -L https://macondo-co.netlify.app/about
 
 ## 17. 当前架构判断
 
-当前架构适合个人博客首版：静态内容与少量动态互动被清晰分离，维护成本低，部署路径短，安全边界相对明确。最大风险点不在页面渲染，而在密钥管理、评论滥用和手动部署流程。后续应优先完成 GitHub 自动部署、密钥轮换、评论限流和日志观测。
+当前架构适合个人博客首版：静态内容与少量动态互动被清晰分离，维护成本低，部署路径短，安全边界相对明确。最大风险点不在页面渲染，而在密钥管理、评论滥用和生产环境观测。后续应优先完成 deploy preview 策略固化、密钥轮换、评论限流和日志观测。

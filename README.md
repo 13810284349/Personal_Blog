@@ -15,11 +15,23 @@ npm run dev
 
 ## 部署
 
-Netlify 连接 GitHub 仓库后使用以下配置：
+Netlify 已连接 GitHub 仓库，`main` 分支 push 后会自动触发生产构建和部署。
+
+部署配置：
 
 - Build command: `npm run build`
 - Publish directory: `dist`
 - Environment variables: 与 `.env.example` 一致
+
+发布流程：
+
+```bash
+npm run check
+npm run build
+git push origin main
+```
+
+推送后在 Netlify Deploys 中确认最新 deploy 关联 GitHub commit、branch 为 `main`，状态为 Published/Ready。
 
 ## 内容
 

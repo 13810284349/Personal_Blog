@@ -169,7 +169,8 @@ PUBLIC_SITE_URL=https://macondo-co.netlify.app
 
 注意：
 
-- 当前站点曾使用上传式部署；若未连接 GitHub 自动部署，部署时使用干净临时 clone，避免把本地 `.env` 上传。
+- 当前站点已连接 GitHub 仓库，`main` 分支 `git push origin main` 后由 Netlify 自动触发生产构建和部署。
+- 不再使用上传式部署；不要把本地 `.env`、`dist/`、`.netlify/` 或临时构建产物作为部署包上传。
 - Netlify 环境变量必须至少包含 `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`BLOG_ADMIN_TOKEN`、`PUBLIC_SITE_URL`。
 - 修改环境变量后需要重新部署，Netlify Functions 才会读取新值。
 - 部署后检查：
@@ -203,6 +204,7 @@ git push origin main
 ```
 
 - 提交前确认 `git status --short` 不包含 `.env`、`dist/`、`.netlify/`、`node_modules/`。
+- 推送到 `main` 后，到 Netlify Deploys 确认新 deploy 关联 GitHub commit、branch 为 `main`、状态为 `Published/Ready`。
 - 不要回滚用户未说明要回滚的改动。
 - 如果发现不相关脏文件，先确认来源，不要擅自覆盖。
 
