@@ -141,6 +141,8 @@ cover: /optional-cover.jpg # 可选，公开可访问的封面/社交分享图
 - 评论默认 `pending`，只有 `approved` 公开展示。
 - 公开评论提交会按 `ip_hash`、文章 slug、`created_at` 做服务端限流和重复正文检测；不要记录或返回原始 IP。
 - `COMMENT_SPAM_WORDS` 命中时直接拒绝评论，不写入审核队列；词表通过环境变量维护，不新增后台。
+- 新评论成功进入 `pending` 后，可通过 `COMMENT_NOTIFY_WEBHOOK_URL` 发送通用 JSON 待审通知；通知失败、超时或 webhook 返回非 2xx 不影响评论提交，只记录服务端错误。
+- 待审通知只包含文章标题/链接、昵称、正文摘要、审核入口和评论 ID；不要加入邮箱、网站、user-agent、`ip_hash` 或原始 IP。
 - 后台审核接口使用 `Authorization: Bearer <BLOG_ADMIN_TOKEN>`。
 - 后台审核列表可扩展 query 参数，但优先复用 `blog_comments` 和现有 `/api/admin/comments`，不要为了筛选/搜索新增数据库表。
 - 改 Supabase schema 前，先查看现有迁移，优先新增迁移，不要直接改已应用迁移。
@@ -159,6 +161,7 @@ COMMENT_RATE_LIMIT_SITE_WINDOW_SECONDS=3600
 COMMENT_RATE_LIMIT_SITE_MAX=5
 COMMENT_DUPLICATE_WINDOW_SECONDS=86400
 COMMENT_SPAM_WORDS=
+COMMENT_NOTIFY_WEBHOOK_URL=
 ```
 
 - `SUPABASE_URL`：服务端 Supabase client 使用。
@@ -170,6 +173,7 @@ COMMENT_SPAM_WORDS=
 - `COMMENT_RATE_LIMIT_SITE_MAX`：同一 IP hash 在全站窗口内允许提交的评论数，默认 5。
 - `COMMENT_DUPLICATE_WINDOW_SECONDS`：重复正文检测窗口，默认 86400 秒。
 - `COMMENT_SPAM_WORDS`：逗号或换行分隔的敏感词/垃圾词；命中时服务端直接拒绝，不写入评论表。
+- `COMMENT_NOTIFY_WEBHOOK_URL`：可选，评论成功进入 `pending` 后接收通用 JSON webhook 的 `http` 或 `https` URL；为空时不发送通知，值本身可能包含 token，不要输出或提交。
 
 ## Netlify
 
@@ -186,7 +190,7 @@ COMMENT_SPAM_WORDS=
 
 - 当前站点已连接 GitHub 仓库，`main` 分支 `git push origin main` 后由 Netlify 自动触发生产构建和部署。
 - 不再使用上传式部署；不要把本地 `.env`、`dist/`、`.netlify/` 或临时构建产物作为部署包上传。
-- Netlify 环境变量必须至少包含 `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`BLOG_ADMIN_TOKEN`、`PUBLIC_SITE_URL`。
+- Netlify 环境变量必须至少包含 `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`BLOG_ADMIN_TOKEN`、`PUBLIC_SITE_URL`；如需待审通知，额外配置 `COMMENT_NOTIFY_WEBHOOK_URL`。
 - 修改环境变量后需要重新部署，Netlify Functions 才会读取新值。
 - 部署后检查：
   - `https://macondo-co.netlify.app/`
@@ -195,6 +199,7 @@ COMMENT_SPAM_WORDS=
   - `https://macondo-co.netlify.app/about`
   - 一个文章详情页
   - 评论/点赞/阅读量 API 是否正常。
+  - 若配置了 `COMMENT_NOTIFY_WEBHOOK_URL`，提交一条测试评论，确认后台可见且通知到达。
 
 ## 开发约定
 
@@ -226,5 +231,5 @@ git push origin main
 ## 安全提醒
 
 - 此项目历史对话里曾出现过敏感 Supabase 信息；正式长期运行前应轮换数据库密码和 service role key。
-- 截图、日志、终端输出里不要展示 service role key、数据库密码、admin token。
+- 截图、日志、终端输出里不要展示 service role key、数据库密码、admin token、webhook URL。
 - 如果需要调试环境变量，只输出变量名是否存在，不输出变量值。

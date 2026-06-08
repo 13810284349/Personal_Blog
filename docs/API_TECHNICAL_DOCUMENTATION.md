@@ -1,7 +1,7 @@
 # 自然选择 API 技术文档
 
 版本：v1.0  
-更新时间：2026-06-05
+更新时间：2026-06-08
 生产站点：https://macondo-co.netlify.app
 
 ## 1. 总览
@@ -60,7 +60,7 @@ slug 校验规则：
 Authorization: Bearer <BLOG_ADMIN_TOKEN>
 ```
 
-不要在日志、截图、提交内容或浏览器端代码中暴露 `SUPABASE_SERVICE_ROLE_KEY`、`BLOG_ADMIN_TOKEN` 或数据库连接信息。
+不要在日志、截图、提交内容或浏览器端代码中暴露 `SUPABASE_SERVICE_ROLE_KEY`、`BLOG_ADMIN_TOKEN`、`COMMENT_NOTIFY_WEBHOOK_URL` 或数据库连接信息。
 
 评论防刷相关环境变量：
 
@@ -71,6 +71,12 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 | `COMMENT_RATE_LIMIT_SITE_MAX` | `5` | 全站窗口内允许的评论数 |
 | `COMMENT_DUPLICATE_WINDOW_SECONDS` | `86400` | 重复正文检测窗口 |
 | `COMMENT_SPAM_WORDS` | 空 | 逗号或换行分隔的敏感词/垃圾词，命中时直接拒绝 |
+
+评论待审通知相关环境变量：
+
+| 变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `COMMENT_NOTIFY_WEBHOOK_URL` | 空 | 新评论成功进入 `pending` 后接收通用 JSON webhook 的 `http` 或 `https` URL；空值时不发送通知 |
 
 ## 3. API 清单
 
@@ -286,6 +292,31 @@ Query 参数：
 - 重复正文会先做空白归一化和大小写归一化，默认 24 小时内拒绝重复提交；缺少 IP hash 时退化为同文章近期重复检测。
 - `COMMENT_SPAM_WORDS` 命中昵称、正文或网站输入时，服务端直接返回中文错误提示，不写入审核队列。
 - 提交评论时会确保 `blog_post_stats` 中存在对应文章统计行。
+- 成功写入 `pending` 后，若配置了 `COMMENT_NOTIFY_WEBHOOK_URL`，服务端会发送待审通知；通知失败、超时或 webhook 返回非 2xx 不影响本次评论提交，只记录服务端错误。
+- 待审通知只包含文章标题/链接、昵称、正文摘要、审核入口和评论 ID；不包含邮箱、网站、user-agent、IP hash 或原始 IP。
+
+待审通知 payload：
+
+```json
+{
+  "event": "comment.pending",
+  "site": {
+    "name": "自然选择",
+    "url": "https://macondo-co.netlify.app"
+  },
+  "post": {
+    "slug": "hello-world",
+    "title": "文章标题",
+    "url": "https://macondo-co.netlify.app/posts/hello-world"
+  },
+  "comment": {
+    "id": "uuid",
+    "authorName": "读者",
+    "bodySummary": "写得很好。"
+  },
+  "reviewUrl": "https://macondo-co.netlify.app/admin/comments"
+}
+```
 
 ## 6. 后台审核 API
 

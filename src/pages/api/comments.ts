@@ -9,6 +9,7 @@ import {
   readJsonObject,
   requirePublishedSlug
 } from "@lib/api";
+import { notifyPendingComment } from "@lib/commentNotifications";
 import { getSupabaseAdmin, hashIp } from "@lib/supabase";
 
 export const prerender = false;
@@ -226,6 +227,13 @@ export const POST: APIRoute = async ({ request }) => {
       .single();
 
     if (error) throw error;
+
+    await notifyPendingComment({
+      slug,
+      commentId: data.id,
+      authorName,
+      body: commentBody
+    });
 
     return json({ ok: true, comment: data }, { status: 201 });
   } catch {
