@@ -11,6 +11,7 @@ import { getSupabaseAdmin } from "@lib/supabase";
 export const prerender = false;
 
 const statuses = new Set(["pending", "approved", "rejected"]);
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const GET: APIRoute = async ({ request }) => {
   if (!requireAdmin(request)) return errorJson("未授权。", 401);
@@ -31,7 +32,9 @@ export const GET: APIRoute = async ({ request }) => {
       )
       .eq("status", status);
 
-    if (query) {
+    if (uuidPattern.test(query)) {
+      commentsQuery = commentsQuery.eq("id", query.toLowerCase());
+    } else if (query) {
       const pattern = `%${query}%`;
       commentsQuery = commentsQuery.or(
         `author_name.ilike.${pattern},body.ilike.${pattern},post_slug.ilike.${pattern}`

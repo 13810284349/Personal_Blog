@@ -314,7 +314,7 @@ Query 参数：
     "authorName": "读者",
     "bodySummary": "写得很好。"
   },
-  "reviewUrl": "https://macondo-co.netlify.app/admin/comments"
+  "reviewUrl": "https://macondo-co.netlify.app/admin/comments?status=pending&q=00000000-0000-4000-8000-000000000000"
 }
 ```
 
@@ -336,14 +336,14 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 
 ### GET `/api/admin/comments`
 
-读取指定状态的评论列表，可按关键词筛选。
+读取指定状态的评论列表，可按关键词筛选；`q` 为完整 UUID 时按评论 ID 精确查找。
 
 Query 参数：
 
 | 参数 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `status` | 否 | `pending` | 可选值：`pending`、`approved`、`rejected` |
-| `q` | 否 | 空 | 关键词，匹配 `author_name`、`body`、`post_slug` |
+| `q` | 否 | 空 | 关键词或评论 ID；完整 UUID 精确匹配 `id`，其他值匹配 `author_name`、`body`、`post_slug` |
 
 成功响应：
 
@@ -370,7 +370,7 @@ Query 参数：
 
 - 每次最多返回 100 条。
 - 按创建时间倒序返回。
-- `q` 会清洗长度和通配符后使用不区分大小写的包含搜索。
+- `q` 会清洗长度和通配符；完整 UUID 使用 `blog_comments.id` 精确匹配，非 UUID 使用不区分大小写的包含搜索。
 - 后台响应包含邮箱和网站，供审核判断使用。
 
 ### PATCH `/api/admin/comments`

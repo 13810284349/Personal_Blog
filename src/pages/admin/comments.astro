@@ -40,7 +40,7 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
             data-admin-query
             type="search"
             autocomplete="off"
-            placeholder="昵称、正文、文章 slug"
+            placeholder="昵称、正文、文章 slug、评论 ID"
           />
         </div>
       </div>
@@ -97,6 +97,10 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
     const list = root?.querySelector("[data-admin-list]");
     const postMetadataElement = document.getElementById("admin-post-metadata");
     const storageKey = "natural-selection-admin-token";
+    const initialSearchParams = new URLSearchParams(window.location.search);
+    const initialQuery = initialSearchParams.get("q")?.trim() ?? "";
+    const hasInitialFilters = initialSearchParams.has("status") || initialSearchParams.has("q");
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const statusLabels: Record<string, string> = {
       pending: "待审核",
       approved: "已通过",
@@ -110,11 +114,50 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
     const posts = JSON.parse(postMetadataElement?.textContent ?? "[]") as AdminPostMeta[];
     const postBySlug = new Map(posts.map((post) => [post.slug, post]));
 
+    function isCommentIdQuery(value: string) {
+      return uuidPattern.test(value);
+    }
+
+    function getInitialStatus() {
+      const status = initialSearchParams.get("status");
+      return status && status in statusLabels ? status : "pending";
+    }
+
+    function setStatus(value: string) {
+      const statusInput = root?.querySelector(`[data-admin-status][value="${value}"]`);
+      if (statusInput instanceof HTMLInputElement) statusInput.checked = true;
+    }
+
+    function saveToken() {
+      if (tokenInput instanceof HTMLInputElement) {
+        sessionStorage.setItem(storageKey, tokenInput.value);
+      }
+    }
+
     if (tokenInput instanceof HTMLInputElement) {
       tokenInput.value = sessionStorage.getItem(storageKey) ?? "";
       tokenInput.addEventListener("change", () => {
-        sessionStorage.setItem(storageKey, tokenInput.value);
+        saveToken();
+        if (hasInitialFilters && getToken()) {
+          loadComments();
+        }
       });
+      tokenInput.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        saveToken();
+        if (form instanceof HTMLFormElement) {
+          form.requestSubmit();
+        } else {
+          loadComments();
+        }
+      });
+    }
+
+    setStatus(getInitialStatus());
+
+    if (queryInput instanceof HTMLInputElement) {
+      queryInput.value = initialQuery;
     }
 
     function getToken() {
@@ -132,6 +175,21 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
 
     function setNote(message: string) {
       if (note) note.textContent = message;
+    }
+
+    function getSearchSuffix(query: string) {
+      if (!query) return "";
+      const label = isCommentIdQuery(query) ? "评论 ID" : "关键词";
+      return `，${label}“${query}”`;
+    }
+
+    function setInitialFilterNote() {
+      if (!hasInitialFilters || getToken()) return;
+      setNote(
+        isCommentIdQuery(initialQuery)
+          ? "输入审核 token 后将载入这条评论。"
+          : "输入审核 token 后将按当前条件载入评论。"
+      );
     }
 
     function formatDateTime(value: string | null) {
@@ -264,7 +322,7 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
           }
         }
 
-        const searchSuffix = query ? `，关键词“${query}”` : "";
+        const searchSuffix = getSearchSuffix(query);
         setNote(
           comments.length
             ? `已载入 ${comments.length} 条${statusLabels[getStatus()]}评论${searchSuffix}。`
@@ -279,6 +337,7 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
     async function updateComment(id: string, status: string | undefined) {
       const token = getToken();
       if (!token || !status) return;
+      const isDirectReviewAction = isCommentIdQuery(getQuery()) && ["approved", "rejected"].includes(status);
 
       setNote("更新中。");
       try {
@@ -294,6 +353,9 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
         if (!response.ok) throw new Error(payload.message ?? "update failed");
         setNote("已更新。");
         await loadComments();
+        if (isDirectReviewAction) {
+          setNote("已处理这条评论。");
+        }
       } catch {
         setNote("更新失败。");
       }
@@ -308,6 +370,12 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
 
     for (const input of root?.querySelectorAll("[data-admin-status]") ?? []) {
       input.addEventListener("change", loadComments);
+    }
+
+    if (hasInitialFilters && getToken()) {
+      loadComments();
+    } else {
+      setInitialFilterNote();
     }
   </script>
 </BaseLayout>

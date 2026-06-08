@@ -261,7 +261,7 @@ natural-selection-liked:<slug>
 
 - 管理者输入或配置 `BLOG_ADMIN_TOKEN` 后调用后台 API。
 - 按 `pending`、`approved`、`rejected` 状态筛选评论。
-- 用关键词搜索昵称、正文和文章 slug。
+- 用关键词搜索昵称、正文和文章 slug；完整 UUID 按评论 ID 精确查找。
 - 通过构建期文章元数据展示评论所属文章标题和链接。
 - 通过 `PATCH /api/admin/comments` 一键通过、拒绝或恢复待审。
 
@@ -304,7 +304,7 @@ slug 规则：
 | `/api/like` | POST | 无 | `{ slug, visitorId }` | 注册点赞，重复点赞不增加计数 |
 | `/api/comments` | GET | 无 | `slug` query | 读取 approved 评论 |
 | `/api/comments` | POST | 无 | 评论表单 JSON | 新评论进入 pending |
-| `/api/admin/comments` | GET | Bearer token | `status`、`q` query | 读取指定状态评论，可按关键词筛选 |
+| `/api/admin/comments` | GET | Bearer token | `status`、`q` query | 读取指定状态评论，可按关键词或评论 ID 筛选 |
 | `/api/admin/comments` | PATCH | Bearer token | `{ id, status }` | 更新评论状态并刷新评论数 |
 
 ### 9.3 API 数据流
@@ -358,7 +358,7 @@ sequenceDiagram
 
   A->>AF: GET /api/admin/comments?status=pending&q=...
   AF->>AF: requireAdmin()
-  AF->>DB: select pending comments filtered by keyword
+  AF->>DB: select pending comments filtered by keyword or id
   DB-->>AF: comments
   AF-->>A: comments
 

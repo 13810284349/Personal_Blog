@@ -45,6 +45,10 @@ export async function notifyPendingComment(params: PendingCommentNotification) {
 
   try {
     const post = await getPublishedPost(params.slug);
+    const reviewParams = new URLSearchParams({
+      status: "pending",
+      q: params.commentId
+    });
     const payload = {
       event: "comment.pending",
       site: {
@@ -61,7 +65,7 @@ export async function notifyPendingComment(params: PendingCommentNotification) {
         authorName: params.authorName,
         bodySummary: summarizeBody(params.body)
       },
-      reviewUrl: absoluteUrl("/admin/comments")
+      reviewUrl: absoluteUrl(`/admin/comments?${reviewParams.toString()}`)
     };
 
     const response = await fetch(webhookUrl, {

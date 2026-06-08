@@ -42,7 +42,7 @@ npm run preview
 - `src/components/ArticleToc.astro`：文章目录组件，接收 Astro `MarkdownHeading[]`，桌面端渲染右侧目录，移动端渲染正文前折叠目录。
 - `src/components/HeadingH2.astro`、`src/components/HeadingH3.astro`：MDX h2/h3 覆盖组件，保留标题 id 并追加 hover/focus 可见的 `#` 锚点。
 - `src/components/RelatedPosts.astro`：相关文章推荐组件，接收构建期算好的已发布文章列表，空列表时不渲染。
-- `src/pages/admin/comments.astro`：评论审核页，支持状态筛选、关键词搜索、文章标题/链接展示和一键状态变更。
+- `src/pages/admin/comments.astro`：评论审核页，支持 URL 参数初始化、状态筛选、关键词/评论 ID 搜索、文章标题/链接展示和一键状态变更。
 - `src/pages/api/`：Astro API routes，由 `@astrojs/netlify` 映射为 Netlify Functions。
 - `src/pages/rss.xml.ts`、`src/pages/sitemap.xml.ts`、`src/pages/robots.txt.ts`：RSS、站点地图和爬虫规则。
 - `src/components/Comments.astro`：评论区。
@@ -142,9 +142,9 @@ cover: /optional-cover.jpg # 可选，公开可访问的封面/社交分享图
 - 公开评论提交会按 `ip_hash`、文章 slug、`created_at` 做服务端限流和重复正文检测；不要记录或返回原始 IP。
 - `COMMENT_SPAM_WORDS` 命中时直接拒绝评论，不写入审核队列；词表通过环境变量维护，不新增后台。
 - 新评论成功进入 `pending` 后，可通过 `COMMENT_NOTIFY_WEBHOOK_URL` 发送通用 JSON 待审通知；通知失败、超时或 webhook 返回非 2xx 不影响评论提交，只记录服务端错误。
-- 待审通知只包含文章标题/链接、昵称、正文摘要、审核入口和评论 ID；不要加入邮箱、网站、user-agent、`ip_hash` 或原始 IP。
+- 待审通知只包含文章标题/链接、昵称、正文摘要、审核入口和评论 ID；审核入口应指向 `/admin/comments?status=pending&q=<commentId>` 直达该评论；不要加入邮箱、网站、user-agent、`ip_hash` 或原始 IP。
 - 后台审核接口使用 `Authorization: Bearer <BLOG_ADMIN_TOKEN>`。
-- 后台审核列表可扩展 query 参数，但优先复用 `blog_comments` 和现有 `/api/admin/comments`，不要为了筛选/搜索新增数据库表。
+- 后台审核列表可扩展 query 参数，但优先复用 `blog_comments` 和现有 `/api/admin/comments`，不要为了筛选/搜索新增数据库表；`q` 为完整 UUID 时按 `id` 精确查找，其他值保留昵称/正文/slug 模糊搜索。
 - 改 Supabase schema 前，先查看现有迁移，优先新增迁移，不要直接改已应用迁移。
 
 ## 环境变量
