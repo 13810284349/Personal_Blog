@@ -1,0 +1,693 @@
+---
+const panelId = "site-ai-chat-panel";
+const titleId = "site-ai-chat-title";
+const inputId = "site-ai-chat-question";
+const quickPrompts = [
+  "这个博客写什么的？",
+  "推荐我从哪篇文章开始？",
+  "何为自然选择？"
+];
+---
+
+<section class="ai-chat" data-ai-chat data-pagefind-ignore="all">
+  <button
+    class="ai-chat-toggle"
+    type="button"
+    aria-label="打开 AI 对话"
+    aria-expanded="false"
+    aria-controls={panelId}
+    data-ai-chat-toggle
+  >
+    <svg aria-hidden="true" viewBox="0 0 24 24" class="ai-chat-toggle-icon">
+      <path
+        d="M5.5 6.25A5.25 5.25 0 0 1 10.75 1h2.5a5.25 5.25 0 0 1 5.25 5.25v4.5A5.25 5.25 0 0 1 13.25 16h-1.7L7.1 20.1a.72.72 0 0 1-1.2-.53V16.1A5.25 5.25 0 0 1 1.5 10.9V6.25Z"
+      ></path>
+      <path d="M8 7.2h8M8 10.5h5.4"></path>
+    </svg>
+  </button>
+
+  <div
+    class="ai-chat-panel"
+    id={panelId}
+    role="dialog"
+    aria-modal="false"
+    aria-hidden="true"
+    aria-labelledby={titleId}
+    data-ai-chat-panel
+  >
+    <header class="ai-chat-header" data-ai-chat-drag>
+      <div>
+        <p class="ai-chat-kicker">Ask anything / AI</p>
+        <h2 id={titleId}>问一问</h2>
+      </div>
+      <div class="ai-chat-header-actions">
+        <span class="ai-chat-status" data-ai-chat-status>准备好了</span>
+        <button class="ai-chat-icon-button" type="button" aria-label="关闭 AI 对话" data-ai-chat-close>
+          ×
+        </button>
+      </div>
+    </header>
+
+    <div class="ai-chat-log" data-ai-chat-log role="log" aria-live="polite" aria-label="AI 对话记录">
+      <article class="ai-chat-message ai-chat-message-assistant">
+        <span>AI</span>
+        <p>你好，我在这里。把问题写下来就行。</p>
+      </article>
+    </div>
+
+    <div class="ai-chat-prompts" aria-label="快捷问题">
+      {
+        quickPrompts.map((prompt) => (
+          <button class="ai-chat-prompt" type="button" data-ai-chat-prompt={prompt}>
+            {prompt}
+          </button>
+        ))
+      }
+    </div>
+
+    <form class="ai-chat-form" data-ai-chat-form>
+      <label class="sr-only" for={inputId}>你的问题</label>
+      <div class="ai-chat-input-row">
+        <textarea
+          id={inputId}
+          name="question"
+          rows="1"
+          maxlength="1200"
+          placeholder="写下你的问题"
+          required
+          data-ai-chat-input
+        ></textarea>
+        <button class="ai-chat-send" type="submit" data-ai-chat-submit>发送</button>
+      </div>
+      <div class="ai-chat-form-footer">
+        <button class="ai-chat-clear" type="button" data-ai-chat-clear>清空</button>
+        <p class="form-note" data-ai-chat-note></p>
+      </div>
+    </form>
+
+    <span class="ai-chat-resize-handle ai-chat-resize-top" data-ai-chat-resize="top" aria-hidden="true"></span>
+    <span class="ai-chat-resize-handle ai-chat-resize-right" data-ai-chat-resize="right" aria-hidden="true"></span>
+    <span class="ai-chat-resize-handle ai-chat-resize-bottom" data-ai-chat-resize="bottom" aria-hidden="true"></span>
+    <span class="ai-chat-resize-handle ai-chat-resize-left" data-ai-chat-resize="left" aria-hidden="true"></span>
+    <span class="ai-chat-resize-handle ai-chat-resize-top-left" data-ai-chat-resize="top-left" aria-hidden="true"></span>
+    <span class="ai-chat-resize-handle ai-chat-resize-top-right" data-ai-chat-resize="top-right" aria-hidden="true"></span>
+    <span class="ai-chat-resize-handle ai-chat-resize-bottom-right" data-ai-chat-resize="bottom-right" aria-hidden="true"></span>
+    <span class="ai-chat-resize-handle ai-chat-resize-bottom-left" data-ai-chat-resize="bottom-left" aria-hidden="true"></span>
+  </div>
+</section>
+
+<script>
+  type ChatRole = "user" | "assistant";
+  type ChatMessage = {
+    role: ChatRole;
+    content: string;
+  };
+
+  const maxHistoryMessages = 8;
+  const maxQuestionChars = 1200;
+  const initialMessage = "你好，我在这里。把问题写下来就行。";
+  const compactChatQuery = window.matchMedia("(max-width: 640px)");
+  const dragThreshold = 6;
+
+  function clampNumber(value: number, min: number, max: number) {
+    return Math.min(Math.max(value, min), Math.max(min, max));
+  }
+
+  function readPixelValue(value: string, fallback: number) {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  function placeAiChatPanel(panel: HTMLElement, rect: DOMRect, positionMode = "free") {
+    panel.style.position = "fixed";
+    panel.style.left = `${Math.round(rect.left)}px`;
+    panel.style.top = `${Math.round(rect.top)}px`;
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+    panel.style.transformOrigin = "top left";
+    panel.style.width = `${Math.round(rect.width)}px`;
+    panel.style.height = `${Math.round(rect.height)}px`;
+    panel.dataset.aiChatPosition = positionMode;
+  }
+
+  function placeAiChatPanelNearToggle(panel: HTMLElement, toggle: HTMLElement) {
+    const panelRect = panel.getBoundingClientRect();
+    const toggleRect = toggle.getBoundingClientRect();
+    const viewportPadding = 12;
+    const gap = 18;
+    const width = panelRect.width;
+    const height = panelRect.height;
+    const nextLeft = clampNumber(
+      toggleRect.right - width,
+      viewportPadding,
+      window.innerWidth - width - viewportPadding
+    );
+    const preferredTop = toggleRect.top - height - gap;
+    const fallbackTop = toggleRect.bottom + gap;
+    const nextTop = clampNumber(
+      preferredTop >= viewportPadding ? preferredTop : fallbackTop,
+      viewportPadding,
+      window.innerHeight - height - viewportPadding
+    );
+
+    placeAiChatPanel(panel, new DOMRect(nextLeft, nextTop, width, height), "anchored");
+  }
+
+  function placeAiChatRoot(root: HTMLElement, rect: DOMRect) {
+    root.style.position = "fixed";
+    root.style.left = `${Math.round(rect.left)}px`;
+    root.style.top = `${Math.round(rect.top)}px`;
+    root.style.right = "auto";
+    root.style.bottom = "auto";
+    root.style.width = `${Math.round(rect.width)}px`;
+    root.style.height = `${Math.round(rect.height)}px`;
+    root.dataset.aiChatToggleMoved = "true";
+  }
+
+  function createAiChatMessage(message: ChatMessage) {
+    const article = document.createElement("article");
+    article.className = `ai-chat-message ai-chat-message-${message.role}`;
+
+    const label = document.createElement("span");
+    label.textContent = message.role === "user" ? "你" : "AI";
+
+    const content = document.createElement("p");
+    content.textContent = message.content;
+
+    article.append(label, content);
+    return { article, content };
+  }
+
+  function createAiChatPendingMessage() {
+    const article = document.createElement("article");
+    article.className = "ai-chat-message ai-chat-message-assistant ai-chat-message-pending";
+
+    const label = document.createElement("span");
+    label.textContent = "AI";
+
+    const content = document.createElement("p");
+    content.setAttribute("aria-label", "AI 正在思考");
+    content.innerHTML =
+      '<span class="ai-chat-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
+
+    article.append(label, content);
+    return article;
+  }
+
+  function wait(ms: number) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  function scrollAiChatLog(log: Element) {
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async function typeAiChatText(element: HTMLElement, text: string, log: Element) {
+    const characters = Array.from(text);
+    const chunkSize = Math.max(1, Math.ceil(characters.length / 180));
+    let rendered = "";
+
+    for (let index = 0; index < characters.length; index += chunkSize) {
+      rendered += characters.slice(index, index + chunkSize).join("");
+      element.textContent = rendered;
+      scrollAiChatLog(log);
+      await wait(12);
+    }
+  }
+
+  function setAiChatBusy(root: Element, busy: boolean) {
+    const input = root.querySelector("[data-ai-chat-input]");
+    const submit = root.querySelector("[data-ai-chat-submit]");
+    const clear = root.querySelector("[data-ai-chat-clear]");
+    const prompts = root.querySelectorAll("[data-ai-chat-prompt]");
+
+    if (input instanceof HTMLTextAreaElement) input.disabled = busy;
+    if (submit instanceof HTMLButtonElement) submit.disabled = busy;
+    if (clear instanceof HTMLButtonElement) clear.disabled = busy;
+    prompts.forEach((prompt) => {
+      if (prompt instanceof HTMLButtonElement) prompt.disabled = busy;
+    });
+  }
+
+  function setAiChatOpen(root: Element, open: boolean) {
+    const toggle = root.querySelector("[data-ai-chat-toggle]");
+    const panel = root.querySelector("[data-ai-chat-panel]");
+    const input = root.querySelector("[data-ai-chat-input]");
+
+    root.classList.toggle("is-open", open);
+    if (toggle instanceof HTMLButtonElement) {
+      toggle.setAttribute("aria-expanded", String(open));
+      toggle.setAttribute("aria-label", open ? "收起 AI 对话" : "打开 AI 对话");
+    }
+    if (panel instanceof HTMLElement) panel.setAttribute("aria-hidden", String(!open));
+    if (
+      open &&
+      root instanceof HTMLElement &&
+      panel instanceof HTMLElement &&
+      toggle instanceof HTMLElement &&
+      root.dataset.aiChatToggleMoved === "true" &&
+      panel.dataset.aiChatPosition !== "free" &&
+      !compactChatQuery.matches
+    ) {
+      placeAiChatPanelNearToggle(panel, toggle);
+    }
+    if (open && input instanceof HTMLTextAreaElement) input.focus();
+  }
+
+  function setupAiChatResize(root: Element, panel: HTMLElement) {
+    const handles = root.querySelectorAll("[data-ai-chat-resize]");
+
+    handles.forEach((handle) => {
+      if (!(handle instanceof HTMLElement)) return;
+
+      handle.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0 || compactChatQuery.matches) return;
+
+        const direction = handle.dataset.aiChatResize ?? "";
+        const hasLeft = direction.includes("left");
+        const hasRight = direction.includes("right");
+        const hasTop = direction.includes("top");
+        const hasBottom = direction.includes("bottom");
+        const rect = panel.getBoundingClientRect();
+        const style = window.getComputedStyle(panel);
+        const viewportPadding = 12;
+        const minWidth = readPixelValue(style.minWidth, 340);
+        const minHeight = readPixelValue(style.minHeight, 390);
+        const maxWidth = Math.min(
+          readPixelValue(style.maxWidth, window.innerWidth - viewportPadding * 2),
+          window.innerWidth - viewportPadding * 2
+        );
+        const maxHeight = Math.min(
+          readPixelValue(style.maxHeight, window.innerHeight - viewportPadding * 2),
+          window.innerHeight - viewportPadding * 2
+        );
+        const maxRight = window.innerWidth - viewportPadding;
+        const maxBottom = window.innerHeight - viewportPadding;
+        const cursor = window.getComputedStyle(handle).cursor;
+        const previousCursor = document.documentElement.style.cursor;
+        const previousUserSelect = document.body.style.userSelect;
+
+        let nextLeft = rect.left;
+        let nextRight = rect.right;
+        let nextTop = rect.top;
+        let nextBottom = rect.bottom;
+
+        event.preventDefault();
+        event.stopPropagation();
+        try {
+          handle.setPointerCapture(event.pointerId);
+        } catch {
+          // Some synthetic or older pointer implementations do not support capture.
+        }
+        root.classList.add("is-resizing");
+        document.documentElement.style.cursor = cursor;
+        document.body.style.userSelect = "none";
+        placeAiChatPanel(panel, rect);
+
+        function updatePanelSize(moveEvent: PointerEvent) {
+          if (hasLeft) {
+            nextLeft = clampNumber(
+              moveEvent.clientX,
+              Math.max(viewportPadding, rect.right - maxWidth),
+              rect.right - minWidth
+            );
+          }
+          if (hasRight) {
+            nextRight = clampNumber(
+              moveEvent.clientX,
+              rect.left + minWidth,
+              Math.min(maxRight, rect.left + maxWidth)
+            );
+          }
+          if (hasTop) {
+            nextTop = clampNumber(
+              moveEvent.clientY,
+              Math.max(viewportPadding, rect.bottom - maxHeight),
+              rect.bottom - minHeight
+            );
+          }
+          if (hasBottom) {
+            nextBottom = clampNumber(
+              moveEvent.clientY,
+              rect.top + minHeight,
+              Math.min(maxBottom, rect.top + maxHeight)
+            );
+          }
+
+          panel.style.left = `${Math.round(nextLeft)}px`;
+          panel.style.top = `${Math.round(nextTop)}px`;
+          panel.style.width = `${Math.round(nextRight - nextLeft)}px`;
+          panel.style.height = `${Math.round(nextBottom - nextTop)}px`;
+        }
+
+        function stopResize() {
+          root.classList.remove("is-resizing");
+          document.documentElement.style.cursor = previousCursor;
+          document.body.style.userSelect = previousUserSelect;
+          document.removeEventListener("pointermove", updatePanelSize);
+          document.removeEventListener("pointerup", stopResize);
+          document.removeEventListener("pointercancel", stopResize);
+          try {
+            if (handle.hasPointerCapture(event.pointerId)) {
+              handle.releasePointerCapture(event.pointerId);
+            }
+          } catch {
+            // Capture may be unavailable if the pointer was cancelled by the browser.
+          }
+        }
+
+        document.addEventListener("pointermove", updatePanelSize);
+        document.addEventListener("pointerup", stopResize);
+        document.addEventListener("pointercancel", stopResize);
+      });
+    });
+  }
+
+  function setupAiChatDrag(root: Element, panel: HTMLElement) {
+    const dragHandle = root.querySelector("[data-ai-chat-drag]");
+    if (!(dragHandle instanceof HTMLElement)) return;
+    const header = dragHandle;
+
+    header.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || compactChatQuery.matches) return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest("button, a, input, textarea, select, [data-ai-chat-resize]")
+      ) {
+        return;
+      }
+
+      const rect = panel.getBoundingClientRect();
+      const viewportPadding = 12;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const previousCursor = document.documentElement.style.cursor;
+      const previousUserSelect = document.body.style.userSelect;
+
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        header.setPointerCapture(event.pointerId);
+      } catch {
+        // Some synthetic or older pointer implementations do not support capture.
+      }
+
+      root.classList.add("is-dragging");
+      document.documentElement.style.cursor = "grabbing";
+      document.body.style.userSelect = "none";
+      placeAiChatPanel(panel, rect);
+
+      function updatePanelPosition(moveEvent: PointerEvent) {
+        const nextLeft = clampNumber(
+          rect.left + moveEvent.clientX - startX,
+          viewportPadding,
+          window.innerWidth - rect.width - viewportPadding
+        );
+        const nextTop = clampNumber(
+          rect.top + moveEvent.clientY - startY,
+          viewportPadding,
+          window.innerHeight - rect.height - viewportPadding
+        );
+
+        panel.style.left = `${Math.round(nextLeft)}px`;
+        panel.style.top = `${Math.round(nextTop)}px`;
+      }
+
+      function stopDrag() {
+        root.classList.remove("is-dragging");
+        document.documentElement.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
+        document.removeEventListener("pointermove", updatePanelPosition);
+        document.removeEventListener("pointerup", stopDrag);
+        document.removeEventListener("pointercancel", stopDrag);
+        try {
+          if (header.hasPointerCapture(event.pointerId)) {
+            header.releasePointerCapture(event.pointerId);
+          }
+        } catch {
+          // Capture may be unavailable if the pointer was cancelled by the browser.
+        }
+      }
+
+      document.addEventListener("pointermove", updatePanelPosition);
+      document.addEventListener("pointerup", stopDrag);
+      document.addEventListener("pointercancel", stopDrag);
+    });
+  }
+
+  function setupAiChatToggleDrag(root: HTMLElement, toggle: HTMLButtonElement) {
+    let suppressNextClick = false;
+
+    toggle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || compactChatQuery.matches || root.classList.contains("is-open")) {
+        return;
+      }
+
+      const rect = root.getBoundingClientRect();
+      const viewportPadding = 12;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const previousCursor = document.documentElement.style.cursor;
+      const previousUserSelect = document.body.style.userSelect;
+      let hasMoved = false;
+
+      try {
+        toggle.setPointerCapture(event.pointerId);
+      } catch {
+        // Some synthetic or older pointer implementations do not support capture.
+      }
+
+      function updateTogglePosition(moveEvent: PointerEvent) {
+        const deltaX = moveEvent.clientX - startX;
+        const deltaY = moveEvent.clientY - startY;
+
+        if (!hasMoved && Math.hypot(deltaX, deltaY) < dragThreshold) return;
+        if (!hasMoved) {
+          hasMoved = true;
+          root.classList.add("is-moving-toggle");
+          document.documentElement.style.cursor = "grabbing";
+          document.body.style.userSelect = "none";
+          placeAiChatRoot(root, rect);
+        }
+
+        const nextLeft = clampNumber(
+          rect.left + deltaX,
+          viewportPadding,
+          window.innerWidth - rect.width - viewportPadding
+        );
+        const nextTop = clampNumber(
+          rect.top + deltaY,
+          viewportPadding,
+          window.innerHeight - rect.height - viewportPadding
+        );
+
+        root.style.left = `${Math.round(nextLeft)}px`;
+        root.style.top = `${Math.round(nextTop)}px`;
+      }
+
+      function stopToggleDrag() {
+        if (hasMoved) {
+          suppressNextClick = true;
+          window.setTimeout(() => {
+            suppressNextClick = false;
+          }, 0);
+        }
+
+        root.classList.remove("is-moving-toggle");
+        document.documentElement.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
+        document.removeEventListener("pointermove", updateTogglePosition);
+        document.removeEventListener("pointerup", stopToggleDrag);
+        document.removeEventListener("pointercancel", stopToggleDrag);
+        try {
+          if (toggle.hasPointerCapture(event.pointerId)) {
+            toggle.releasePointerCapture(event.pointerId);
+          }
+        } catch {
+          // Capture may be unavailable if the pointer was cancelled by the browser.
+        }
+      }
+
+      document.addEventListener("pointermove", updateTogglePosition);
+      document.addEventListener("pointerup", stopToggleDrag);
+      document.addEventListener("pointercancel", stopToggleDrag);
+    });
+
+    return {
+      shouldSuppressClick() {
+        return suppressNextClick;
+      }
+    };
+  }
+
+  function setupAiChatOutsideClose(root: Element) {
+    document.addEventListener("pointerdown", (event) => {
+      if (
+        !root.classList.contains("is-open") ||
+        root.classList.contains("is-moving-toggle") ||
+        root.classList.contains("is-dragging") ||
+        root.classList.contains("is-resizing")
+      ) {
+        return;
+      }
+
+      if (event.target instanceof Node && root.contains(event.target)) return;
+      setAiChatOpen(root, false);
+    });
+  }
+
+  async function readAiResponse(response: Response) {
+    try {
+      return (await response.json()) as { ok?: boolean; answer?: unknown; message?: unknown };
+    } catch {
+      return {};
+    }
+  }
+
+  for (const root of document.querySelectorAll("[data-ai-chat]")) {
+    const form = root.querySelector("[data-ai-chat-form]");
+    const input = root.querySelector("[data-ai-chat-input]");
+    const log = root.querySelector("[data-ai-chat-log]");
+    const panel = root.querySelector("[data-ai-chat-panel]");
+    const note = root.querySelector("[data-ai-chat-note]");
+    const status = root.querySelector("[data-ai-chat-status]");
+    const toggle = root.querySelector("[data-ai-chat-toggle]");
+    const close = root.querySelector("[data-ai-chat-close]");
+    const clear = root.querySelector("[data-ai-chat-clear]");
+    const prompts = root.querySelectorAll("[data-ai-chat-prompt]");
+
+    if (
+      !(root instanceof HTMLElement) ||
+      !(form instanceof HTMLFormElement) ||
+      !(input instanceof HTMLTextAreaElement) ||
+      !(panel instanceof HTMLElement) ||
+      !(toggle instanceof HTMLButtonElement) ||
+      !log
+    ) {
+      continue;
+    }
+
+    const chatRoot = root;
+    const chatForm = form;
+    const chatInput = input;
+    const chatLog = log;
+    const chatPanel = panel;
+    const chatToggle = toggle;
+    let history: ChatMessage[] = [];
+
+    const toggleDrag = setupAiChatToggleDrag(chatRoot, chatToggle);
+    setupAiChatResize(chatRoot, chatPanel);
+    setupAiChatDrag(chatRoot, chatPanel);
+    setupAiChatOutsideClose(chatRoot);
+
+    async function sendQuestion(rawQuestion: string) {
+      const question = rawQuestion.trim();
+      if (!question) return;
+
+      if (question.length > maxQuestionChars) {
+        if (note) note.textContent = "问题太长，请压缩后再试。";
+        return;
+      }
+
+      setAiChatOpen(root, true);
+      const previousHistory = history.slice(-maxHistoryMessages);
+      chatLog.append(createAiChatMessage({ role: "user", content: question }).article);
+      chatInput.value = "";
+      scrollAiChatLog(chatLog);
+
+      const pending = createAiChatPendingMessage();
+      chatLog.append(pending);
+      scrollAiChatLog(chatLog);
+
+      setAiChatBusy(root, true);
+      if (note) note.textContent = "";
+      if (status) status.textContent = "思考中";
+
+      try {
+        const response = await fetch("/api/ai", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question, history: previousHistory })
+        });
+        const payload = await readAiResponse(response);
+        if (!response.ok || payload.ok === false || typeof payload.answer !== "string") {
+          const message = typeof payload.message === "string" ? payload.message : "";
+          throw new Error(message ? `api:${message}` : "ai failed");
+        }
+
+        pending.remove();
+        const answer = payload.answer.trim();
+        const assistantMessage = createAiChatMessage({ role: "assistant", content: "" });
+        chatLog.append(assistantMessage.article);
+        await typeAiChatText(assistantMessage.content, answer, chatLog);
+
+        const nextHistory: ChatMessage[] = [
+          ...previousHistory,
+          { role: "user", content: question },
+          { role: "assistant", content: answer }
+        ];
+        history = nextHistory.slice(-maxHistoryMessages);
+        if (status) status.textContent = "已回复";
+      } catch (error) {
+        pending.remove();
+        const message =
+          error instanceof Error && error.message.startsWith("api:")
+            ? error.message.slice(4)
+            : "AI 暂时没有回应，请稍后再试。";
+        chatLog.append(createAiChatMessage({ role: "assistant", content: message }).article);
+        if (status) status.textContent = "暂不可用";
+      } finally {
+        setAiChatBusy(root, false);
+        scrollAiChatLog(chatLog);
+        chatInput.focus();
+      }
+    }
+
+    chatToggle.addEventListener("click", (event) => {
+      if (toggleDrag.shouldSuppressClick()) {
+        event.preventDefault();
+        return;
+      }
+
+      setAiChatOpen(chatRoot, !chatRoot.classList.contains("is-open"));
+    });
+
+    close?.addEventListener("click", () => {
+      setAiChatOpen(chatRoot, false);
+    });
+
+    clear?.addEventListener("click", () => {
+      history = [];
+      chatLog.innerHTML = "";
+      chatLog.append(createAiChatMessage({ role: "assistant", content: initialMessage }).article);
+      chatInput.value = "";
+      if (note) note.textContent = "";
+      if (status) status.textContent = "准备好了";
+      chatInput.focus();
+    });
+
+    prompts.forEach((prompt) => {
+      prompt.addEventListener("click", () => {
+        if (prompt instanceof HTMLButtonElement) sendQuestion(prompt.dataset.aiChatPrompt ?? "");
+      });
+    });
+
+    chatInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        chatForm.requestSubmit();
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && root.classList.contains("is-open")) {
+        setAiChatOpen(chatRoot, false);
+      }
+    });
+
+    chatForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      sendQuestion(chatInput.value);
+    });
+  }
+</script>

@@ -50,15 +50,24 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
           <div class="status-tabs">
             <label>
               <input data-admin-status type="radio" name="admin-status" value="pending" checked />
-              <span>待审核</span>
+              <span class="status-tab">
+                <span class="status-tab-text">待审核</span>
+                <strong class="status-count" data-admin-count="pending">--</strong>
+              </span>
             </label>
             <label>
               <input data-admin-status type="radio" name="admin-status" value="approved" />
-              <span>已通过</span>
+              <span class="status-tab">
+                <span class="status-tab-text">已通过</span>
+                <strong class="status-count" data-admin-count="approved">--</strong>
+              </span>
             </label>
             <label>
               <input data-admin-status type="radio" name="admin-status" value="rejected" />
-              <span>已拒绝</span>
+              <span class="status-tab">
+                <span class="status-tab-text">已拒绝</span>
+                <strong class="status-count" data-admin-count="rejected">--</strong>
+              </span>
             </label>
           </div>
         </fieldset>
@@ -89,12 +98,19 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
       url: string;
     };
 
+    type AdminCounts = {
+      pending: number;
+      approved: number;
+      rejected: number;
+    };
+
     const root = document.querySelector("[data-admin-comments]");
     const form = root?.querySelector("[data-admin-form]");
     const tokenInput = root?.querySelector("[data-admin-token]");
     const queryInput = root?.querySelector("[data-admin-query]");
     const note = root?.querySelector("[data-admin-note]");
     const list = root?.querySelector("[data-admin-list]");
+    const countElements = root?.querySelectorAll("[data-admin-count]");
     const postMetadataElement = document.getElementById("admin-post-metadata");
     const storageKey = "natural-selection-admin-token";
     const initialSearchParams = new URLSearchParams(window.location.search);
@@ -110,6 +126,10 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
       pending: "恢复待审",
       approved: "通过",
       rejected: "拒绝"
+    };
+    const reviewResultLabels: Record<string, string> = {
+      approved: "已通过这条评论。",
+      rejected: "已拒绝这条评论。"
     };
     const posts = JSON.parse(postMetadataElement?.textContent ?? "[]") as AdminPostMeta[];
     const postBySlug = new Map(posts.map((post) => [post.slug, post]));
@@ -138,8 +158,10 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
       tokenInput.value = sessionStorage.getItem(storageKey) ?? "";
       tokenInput.addEventListener("change", () => {
         saveToken();
-        if (hasInitialFilters && getToken()) {
+        if (getToken()) {
           loadComments();
+        } else {
+          setTokenPromptNote();
         }
       });
       tokenInput.addEventListener("keydown", (event) => {
@@ -173,8 +195,18 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
       return queryInput instanceof HTMLInputElement ? queryInput.value.trim() : "";
     }
 
-    function setNote(message: string) {
-      if (note) note.textContent = message;
+    function setNote(message: string, link?: { href: string; text: string }) {
+      if (!note) return;
+      note.textContent = "";
+      note.append(document.createTextNode(message));
+
+      if (link) {
+        const anchor = document.createElement("a");
+        anchor.className = "admin-note-link";
+        anchor.href = link.href;
+        anchor.textContent = link.text;
+        note.append(" ", anchor);
+      }
     }
 
     function getSearchSuffix(query: string) {
@@ -183,18 +215,65 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
       return `，${label}“${query}”`;
     }
 
-    function setInitialFilterNote() {
-      if (!hasInitialFilters || getToken()) return;
+    function setTokenPromptNote() {
+      if (getToken()) return;
       setNote(
         isCommentIdQuery(initialQuery)
           ? "输入审核 token 后将载入这条评论。"
-          : "输入审核 token 后将按当前条件载入评论。"
+          : hasInitialFilters
+            ? "输入审核 token 后将按当前条件载入评论。"
+            : "输入审核 token 后将载入待审列表。"
       );
+    }
+
+    function renderStatusCounts(counts: unknown) {
+      if (!counts || typeof counts !== "object") return;
+      const values = counts as Partial<Record<keyof AdminCounts, unknown>>;
+
+      for (const element of countElements ?? []) {
+        if (!(element instanceof HTMLElement)) continue;
+        const status = element.dataset.adminCount as keyof AdminCounts | undefined;
+        if (!status) continue;
+
+        const value = values[status];
+        const count = typeof value === "number" && Number.isFinite(value) ? value : 0;
+        element.textContent = count.toLocaleString("zh-CN");
+      }
+    }
+
+    function getEmptyNoteMessage(status: string, query: string) {
+      if (isCommentIdQuery(query)) {
+        return `这条评论已处理，或不在“${statusLabels[status] ?? status}”筛选下。`;
+      }
+
+      if (status === "pending" && !query) {
+        return "当前没有待审评论。";
+      }
+
+      return `没有符合条件的${statusLabels[status] ?? status}评论${getSearchSuffix(query)}。`;
     }
 
     function formatDateTime(value: string | null) {
       if (!value) return "";
       return new Date(value).toLocaleString("zh-CN");
+    }
+
+    function getPostUrl(slug: string) {
+      return postBySlug.get(slug)?.url ?? `/posts/${encodeURIComponent(slug)}`;
+    }
+
+    function updateLocationFilter(status: string, query: string) {
+      const params = new URLSearchParams(window.location.search);
+      params.set("status", status);
+
+      if (query) {
+        params.set("q", query);
+      } else {
+        params.delete("q");
+      }
+
+      const nextUrl = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+      window.history.replaceState(null, "", nextUrl);
     }
 
     function createPostElement(slug: string) {
@@ -289,10 +368,36 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
       return item;
     }
 
+    function renderEmptyState(status: string, query: string) {
+      const isDirectLookup = isCommentIdQuery(query);
+      const isPendingQueue = status === "pending" && !query;
+      const empty = document.createElement("div");
+      empty.className = "admin-empty";
+
+      const title = document.createElement("p");
+      title.className = "admin-empty-title";
+      title.textContent = isDirectLookup
+        ? "已处理"
+        : isPendingQueue
+          ? "当前没有待审评论"
+          : "没有评论";
+
+      const body = document.createElement("p");
+      body.className = "form-note";
+      body.textContent = isDirectLookup
+        ? `这条评论已处理，或不在“${statusLabels[status] ?? status}”筛选下。`
+        : isPendingQueue
+          ? "待审队列是空的，新的评论提交后会出现在这里。"
+          : `没有符合条件的${statusLabels[status] ?? status}评论${getSearchSuffix(query)}。`;
+
+      empty.append(title, body);
+      return empty;
+    }
+
     async function loadComments() {
       const token = getToken();
       if (!token) {
-        setNote("请先输入审核 token。");
+        setTokenPromptNote();
         return;
       }
 
@@ -314,11 +419,16 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.message ?? "load failed");
         const comments = Array.isArray(payload.comments) ? payload.comments : [];
+        renderStatusCounts(payload.counts);
 
         if (list) {
           list.innerHTML = "";
-          for (const comment of comments) {
-            list.append(renderComment(comment));
+          if (comments.length) {
+            for (const comment of comments) {
+              list.append(renderComment(comment));
+            }
+          } else {
+            list.append(renderEmptyState(getStatus(), query));
           }
         }
 
@@ -326,7 +436,7 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
         setNote(
           comments.length
             ? `已载入 ${comments.length} 条${statusLabels[getStatus()]}评论${searchSuffix}。`
-            : `没有符合条件的${statusLabels[getStatus()]}评论${searchSuffix}。`
+            : getEmptyNoteMessage(getStatus(), query)
         );
       } catch (error) {
         const message = error instanceof Error && error.message ? error.message : "请检查 token 和环境变量。";
@@ -337,7 +447,8 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
     async function updateComment(id: string, status: string | undefined) {
       const token = getToken();
       if (!token || !status) return;
-      const isDirectReviewAction = isCommentIdQuery(getQuery()) && ["approved", "rejected"].includes(status);
+      const query = getQuery();
+      const isDirectReviewAction = isCommentIdQuery(query) && ["approved", "rejected"].includes(status);
 
       setNote("更新中。");
       try {
@@ -351,10 +462,24 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.message ?? "update failed");
+
+        const updatedComment = payload.comment;
+
+        if (isDirectReviewAction) {
+          setStatus(status);
+          updateLocationFilter(status, query);
+        }
+
         setNote("已更新。");
         await loadComments();
+
         if (isDirectReviewAction) {
-          setNote("已处理这条评论。");
+          const postSlug = typeof updatedComment?.post_slug === "string" ? updatedComment.post_slug : "";
+          const resultMessage = reviewResultLabels[status] ?? "已处理这条评论。";
+          setNote(
+            resultMessage,
+            postSlug ? { href: getPostUrl(postSlug), text: "查看文章" } : undefined
+          );
         }
       } catch {
         setNote("更新失败。");
@@ -372,10 +497,10 @@ const adminPostsJson = JSON.stringify(adminPosts).replace(/</g, "\\u003c");
       input.addEventListener("change", loadComments);
     }
 
-    if (hasInitialFilters && getToken()) {
+    if (getToken()) {
       loadComments();
     } else {
-      setInitialFilterNote();
+      setTokenPromptNote();
     }
   </script>
 </BaseLayout>

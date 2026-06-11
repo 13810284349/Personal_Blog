@@ -10,7 +10,8 @@ import { getSupabaseAdmin } from "@lib/supabase";
 
 export const prerender = false;
 
-const statuses = new Set(["pending", "approved", "rejected"]);
+const statusValues = ["pending", "approved", "rejected"] as const;
+const statuses = new Set<string>(statusValues);
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const GET: APIRoute = async ({ request }) => {
@@ -41,13 +42,29 @@ export const GET: APIRoute = async ({ request }) => {
       );
     }
 
-    const { data, error } = await commentsQuery
-      .order("created_at", { ascending: false })
-      .limit(100);
+    const [{ data, error }, ...countResults] = await Promise.all([
+      commentsQuery.order("created_at", { ascending: false }).limit(100),
+      ...statusValues.map((value) =>
+        supabase
+          .from("blog_comments")
+          .select("id", { count: "exact", head: true })
+          .eq("status", value)
+      )
+    ]);
 
     if (error) throw error;
 
-    return json({ ok: true, comments: data ?? [] });
+    const counts = statusValues.reduce<Record<(typeof statusValues)[number], number>>(
+      (total, value, index) => {
+        const result = countResults[index];
+        if (result.error) throw result.error;
+        total[value] = result.count ?? 0;
+        return total;
+      },
+      { pending: 0, approved: 0, rejected: 0 }
+    );
+
+    return json({ ok: true, comments: data ?? [], counts });
   } catch {
     return errorJson("评论读取失败。", 500);
   }

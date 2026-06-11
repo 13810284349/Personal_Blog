@@ -1,20 +1,21 @@
 # 自然选择 API 技术文档
 
 版本：v1.0  
-更新时间：2026-06-08
+更新时间：2026-06-11
 生产站点：https://macondo-co.netlify.app
 
 ## 1. 总览
 
 本项目采用 Astro 6 + Netlify adapter。`src/pages/api/*` 下的 JSON API 在生产构建中由 Netlify Functions 承载，RSS、sitemap、robots 则由 Astro endpoint 生成静态公开资源。
 
-API 分为三类：
+API 分为四类：
 
 - 公开互动 API：阅读量、点赞、公开评论。
+- 公开 AI API：首页对话框调用 Bedrock Claude，由服务端代理转发。
 - 后台审核 API：评论审核列表与状态更新，需要 `BLOG_ADMIN_TOKEN`。
 - 公开页面与发现 endpoint：`/posts/[slug]`、`/archive`、`/search`、`/rss.xml`、`/sitemap.xml`、`/robots.txt`，用于文章阅读、文章封面、社交分享图、结构化 SEO、文章目录与标题锚点、相关文章推荐、归档浏览、站内搜索、订阅和搜索引擎发现。
 
-所有数据库写入都在服务端 API 内完成，浏览器端不会直接持有 Supabase service role key。
+所有数据库写入都在服务端 API 内完成，浏览器端不会直接持有 Supabase service role key，也不会持有 Bedrock API key。
 
 ## 2. 通用约定
 
@@ -60,7 +61,7 @@ slug 校验规则：
 Authorization: Bearer <BLOG_ADMIN_TOKEN>
 ```
 
-不要在日志、截图、提交内容或浏览器端代码中暴露 `SUPABASE_SERVICE_ROLE_KEY`、`BLOG_ADMIN_TOKEN`、`COMMENT_NOTIFY_WEBHOOK_URL` 或数据库连接信息。
+不要在日志、截图、提交内容或浏览器端代码中暴露 `SUPABASE_SERVICE_ROLE_KEY`、`BLOG_ADMIN_TOKEN`、`COMMENT_NOTIFY_WEBHOOK_URL`、`AWS_BEARER_TOKEN_BEDROCK` 或数据库连接信息。
 
 评论防刷相关环境变量：
 
@@ -78,6 +79,16 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 | --- | --- | --- |
 | `COMMENT_NOTIFY_WEBHOOK_URL` | 空 | 新评论成功进入 `pending` 后接收通用 JSON webhook 的 `http` 或 `https` URL；空值时不发送通知 |
 
+AI 对话相关环境变量：
+
+| 变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `BEDROCK_REGION` | `us-east-1` | Bedrock Runtime 区域；不要使用 Netlify 保留变量名 `AWS_REGION` |
+| `AWS_BEARER_TOKEN_BEDROCK` | 无 | Bedrock API key，仅服务端 `/api/ai` 读取，不能加 `PUBLIC_` 前缀 |
+| `ANTHROPIC_MODEL` | 无 | 首选 Claude 模型，当前建议 `global.anthropic.claude-opus-4-8` |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | 空 | 可选 Sonnet fallback 模型 |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | 空 | 可选 Haiku fallback 模型 |
+
 ## 3. API 清单
 
 | Endpoint | 方法 | 鉴权 | 用途 |
@@ -87,6 +98,7 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 | `/api/like` | POST | 无 | 记录一次文章喜欢 |
 | `/api/comments?slug=...` | GET | 无 | 读取已审核通过评论 |
 | `/api/comments` | POST | 无 | 提交新评论，默认进入待审核 |
+| `/api/ai` | POST | 无 | 首页 AI 对话框，服务端调用 Bedrock Claude |
 | `/api/admin/comments?status=...&q=...` | GET | Bearer token | 读取后台评论列表 |
 | `/api/admin/comments` | PATCH | Bearer token | 更新评论审核状态 |
 | `/posts/[slug]` | GET | 无 | 阅读已发布文章详情，含封面图、社交分享图、结构化 SEO、文章目录、标题锚点、相关文章推荐和相邻文章导航 |
@@ -96,7 +108,50 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 | `/sitemap.xml` | GET | 无 | 搜索引擎站点地图 |
 | `/robots.txt` | GET | 无 | 爬虫访问规则 |
 
-## 4. 公开互动 API
+## 4. 公开互动与 AI API
+
+### POST `/api/ai`
+
+首页 AI 对话框调用入口。浏览器只发送问题和当前页面内存中的短对话历史，Bedrock API key 只由服务端读取。服务端会从已发布 MDX 文章中做轻量本地检索，把相关标题、摘要、标签、链接和正文片段压缩后注入模型上下文，用于回答博客内容和文章推荐问题。
+
+请求体：
+
+```json
+{
+  "question": "用中文说一句你好",
+  "history": [
+    { "role": "user", "content": "上一轮问题" },
+    { "role": "assistant", "content": "上一轮回答" }
+  ]
+}
+```
+
+字段规则：
+
+| 字段 | 必填 | 规则 |
+| --- | --- | --- |
+| `question` | 是 | 1-1200 字符 |
+| `history` | 否 | 最多保留最近 8 条 `{ role, content }`，`role` 只能是 `user` 或 `assistant` |
+
+成功响应：
+
+```json
+{
+  "ok": true,
+  "answer": "你好，愿你今天的判断慢一点，也稳一点。"
+}
+```
+
+行为说明：
+
+- 服务端按 `ANTHROPIC_MODEL`、`ANTHROPIC_DEFAULT_SONNET_MODEL`、`ANTHROPIC_DEFAULT_HAIKU_MODEL` 的顺序调用 Bedrock Converse API，前一个模型失败时尝试下一个可用 fallback；首选 Opus 4.8 时默认使用 `global.anthropic.claude-opus-4-8`，如有严格数据驻留要求可改用区域内模型 ID `anthropic.claude-opus-4-8` 并确认 `BEDROCK_REGION` 支持。
+- 服务端会复用 `getPublishedPosts()` 检索公开已发布文章；不会读取草稿、后台页、评论审核数据、Supabase 私密字段、环境变量或 `.env`。
+- 本地检索不新增数据库、向量库、Pagefind API 或客户端索引下载；上下文只在服务端请求内临时生成，并限制总长度。
+- 服务端会限制请求体大小、问题长度、history 条数、history 单条长度和上游超时时间。
+- 系统提示不限制开放问答主题，但明确禁止泄露、猜测或编造密钥、环境变量、请求头和内部实现细节。
+- 上游错误只记录脱敏后的状态和摘要，不记录 Bearer token；浏览器只收到中文错误提示。
+- 首页组件只在当前页面会话内保留短对话上下文，刷新后清空，不落库，不调用 Supabase。
+- 本地调试时将 Bedrock 变量写入项目根目录 `.env`，不要加 `PUBLIC_` 前缀；修改后重启 `npm run dev`。
 
 ### GET `/api/post-stats`
 
@@ -350,6 +405,11 @@ Query 参数：
 ```json
 {
   "ok": true,
+  "counts": {
+    "pending": 3,
+    "approved": 12,
+    "rejected": 4
+  },
   "comments": [
     {
       "id": "uuid",
@@ -370,6 +430,7 @@ Query 参数：
 
 - 每次最多返回 100 条。
 - 按创建时间倒序返回。
+- `counts` 返回全局各状态评论数，不受当前 `status` 或 `q` 筛选影响，用于后台状态 tab 展示队列数量。
 - `q` 会清洗长度和通配符；完整 UUID 使用 `blog_comments.id` 精确匹配，非 UUID 使用不区分大小写的包含搜索。
 - 后台响应包含邮箱和网站，供审核判断使用。
 
@@ -580,6 +641,7 @@ Sitemap: https://macondo-co.netlify.app/sitemap.xml
 | `src/components/RelatedPosts.astro` | 不调用 JSON API，接收构建期计算好的相关文章列表；空列表时不输出 HTML |
 | `src/pages/archive.astro` | 不调用 JSON API，使用内容集合生成归档页 |
 | `src/pages/search.astro` | 不调用 JSON API，使用 Pagefind 静态 bundle 做浏览器端全文搜索 |
+| `src/components/AiChat.astro` | `/api/ai` |
 | `src/components/Engagement.astro` | `/api/record-view`、`/api/post-stats`、`/api/like` |
 | `src/components/Comments.astro` | `/api/comments` |
 | `src/pages/admin/comments.astro` | `/api/admin/comments` |
@@ -606,6 +668,9 @@ curl -L http://127.0.0.1:4321/rss.xml
 curl -L http://127.0.0.1:4321/sitemap.xml
 curl -L http://127.0.0.1:4321/robots.txt
 curl -L "http://127.0.0.1:4321/api/post-stats?slugs=hello-world"
+curl -i http://127.0.0.1:4321/api/ai \
+  -H "Content-Type: application/json" \
+  --data '{"question":"用中文说一句你好"}'
 ```
 
 线上 endpoint 验证：
@@ -620,6 +685,9 @@ curl -L https://macondo-co.netlify.app/rss.xml
 curl -L https://macondo-co.netlify.app/sitemap.xml
 curl -L https://macondo-co.netlify.app/robots.txt
 curl -L "https://macondo-co.netlify.app/api/post-stats?slugs=hello-world"
+curl -i https://macondo-co.netlify.app/api/ai \
+  -H "Content-Type: application/json" \
+  --data '{"question":"用中文说一句你好"}'
 ```
 
 安全验证：

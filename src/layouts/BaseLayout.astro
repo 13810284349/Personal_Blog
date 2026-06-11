@@ -1,5 +1,6 @@
 ---
 import "../styles/global.css";
+import AiChat from "@components/AiChat.astro";
 import { site } from "@lib/site";
 
 interface Props {
@@ -109,5 +110,6 @@ const jsonLd = structuredData
         <span>© {new Date().getFullYear()} {site.author}. Built with Astro, Supabase and Netlify.</span>
       </footer>
     </div>
+    {!noindex && <AiChat />}
   </body>
 </html>

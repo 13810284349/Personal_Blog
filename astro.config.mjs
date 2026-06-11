@@ -7,6 +7,9 @@ const isDevCommand = process.argv.includes("dev");
 export default defineConfig({
   output: "static",
   adapter: isDevCommand ? undefined : netlify(),
+  devToolbar: {
+    enabled: false
+  },
   integrations: [mdx()],
   markdown: {
     shikiConfig: {

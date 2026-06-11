@@ -12,6 +12,7 @@
 - 公开索引：`/archive` 按年份/月分组展示所有已发布文章；`/search` 使用 Pagefind 静态全文搜索，入口都在主导航和 sitemap 中。
 - 文章详情：`/posts/[slug]` 自动从 MDX 渲染结果提取 h2/h3 生成文章目录，标题保留 Astro 生成的稳定 id 并带可跳转锚点；正文后有相关文章推荐和上一篇/下一篇导航，均复用 `getPublishedPosts()`，只链接已发布文章；页面输出 `BlogPosting` JSON-LD 和 article Open Graph 元数据。
 - 图片能力：文章可在 MDX 中引用仓库内图片，当前图片资源放在根目录 `images/`，正文图片样式由 `src/styles/global.css` 的 `.prose img` 统一控制；文章 frontmatter 的 `cover` 用于详情页正文宽度封面图、社交分享图、Article JSON-LD 图片和 RSS Media RSS 图片标签。
+- AI 对话：公开页面由 `BaseLayout` 渲染右下角浮动 `AiChat`，浏览器只调用 `/api/ai`；Bedrock token 只在服务端读取，并通过 `src/lib/blogAiContext.ts` 对已发布文章做轻量本地检索后注入模型上下文。
 - 线上站点：https://macondo-co.netlify.app
 - GitHub remote：`ssh://git@ssh.github.com:443/13810284349/Personal_Blog.git`
 
@@ -42,8 +43,11 @@ npm run preview
 - `src/components/ArticleToc.astro`：文章目录组件，接收 Astro `MarkdownHeading[]`，桌面端渲染右侧目录，移动端渲染正文前折叠目录。
 - `src/components/HeadingH2.astro`、`src/components/HeadingH3.astro`：MDX h2/h3 覆盖组件，保留标题 id 并追加 hover/focus 可见的 `#` 锚点。
 - `src/components/RelatedPosts.astro`：相关文章推荐组件，接收构建期算好的已发布文章列表，空列表时不渲染。
-- `src/pages/admin/comments.astro`：评论审核页，支持 URL 参数初始化、状态筛选、关键词/评论 ID 搜索、文章标题/链接展示和一键状态变更。
+- `src/components/AiChat.astro`：公开页面右下角浮动 AI 对话框；仅保存当前页面内存 history，刷新清空，UI 用 `data-pagefind-ignore="all"` 排除搜索索引；桌面端支持浮动按钮拖拽、面板标题栏拖拽、边线/角落缩放和点击外部关闭。
+- `src/pages/admin/comments.astro`：评论审核页，支持 URL 参数初始化、状态筛选、状态计数、关键词/评论 ID 搜索、文章标题/链接展示、一键状态变更、已有 token 自动载入待审队列，以及通知直达审核后的处理结果提示和状态回跳。
+- `src/lib/blogAiContext.ts`：`/api/ai` 专用服务端轻量检索 helper，复用 `getPublishedPosts()`，只检索已发布文章的标题、摘要、标签和正文片段。
 - `src/pages/api/`：Astro API routes，由 `@astrojs/netlify` 映射为 Netlify Functions。
+- `src/pages/api/ai.ts`：公开 AI 对话 API，服务端调用 Bedrock Converse API，按 Opus/Sonnet/Haiku 环境变量顺序 fallback。
 - `src/pages/rss.xml.ts`、`src/pages/sitemap.xml.ts`、`src/pages/robots.txt.ts`：RSS、站点地图和爬虫规则。
 - `src/components/Comments.astro`：评论区。
 - `src/components/Engagement.astro`：点赞和阅读量。
@@ -107,6 +111,31 @@ cover: /optional-cover.jpg # 可选，公开可访问的封面/社交分享图
 - 后台审核页必须保持 `noindex, nofollow`。
 - 新增公开页面后，应评估是否加入 `site.nav` 和 `sitemap.xml.ts`。
 
+## AI 对话
+
+当前 AI 能力：
+
+- `AiChat` 由 `BaseLayout` 在 `!noindex` 时全站公开渲染；后台审核页等 `noindex` 页面不显示。
+- 前端只向 `/api/ai` 发送 `{ question, history }`，不接收、不保存、不展示任何 Bedrock token 或本地文章索引。
+- `/api/ai` 读取 `BEDROCK_REGION`、`AWS_BEARER_TOKEN_BEDROCK`、`ANTHROPIC_MODEL`、`ANTHROPIC_DEFAULT_SONNET_MODEL`、`ANTHROPIC_DEFAULT_HAIKU_MODEL`，使用 Bedrock Converse API，按 Opus -> Sonnet -> Haiku 顺序 fallback。
+- `/api/ai` 会限制请求体大小、问题长度、history 条数/长度和上游超时；错误返回中文友好提示，日志只记录脱敏后的上游错误。
+- `src/lib/blogAiContext.ts` 在服务端运行时复用 `getPublishedPosts()`，只检索已发布文章；用本地词法匹配选出相关标题、摘要、标签和正文片段，总上下文有限制，不做向量化、不落库、不调用 Supabase。
+- 当用户问博客内容、文章推荐、写作主题或具体文章时，系统提示要求模型优先基于本地检索上下文回答，并尽量给出文章标题和 `/posts/<slug>/` 链接；普通开放问题仍可正常回答。
+- 桌面端交互：收起状态的圆形 AI 按钮可拖拽到视口内任意位置，轻点仍打开对话；打开后对话框会尽量靠近按钮显示，并可通过标题栏拖拽移动、通过透明边线/角落手柄缩放。
+- 对话框交互：点击对话框外部空白处关闭；按 `Escape` 关闭；关闭后对话 history 仍只保留在当前页面内存，刷新清空。
+- 移动端交互：小屏下禁用按钮拖拽、面板拖拽和面板缩放，保持底部贴边浮层，避免遮挡和拖丢。
+- 尺寸和位置状态只在当前页面生命周期内保留，不写入 `localStorage`；刷新页面恢复默认布局。
+- 本地开发的 Astro Dev Toolbar 已在 `astro.config.mjs` 通过 `devToolbar: { enabled: false }` 关闭，避免与博客浮动控件混淆。
+
+规则：
+
+- 不要把 `AWS_BEARER_TOKEN_BEDROCK` 暴露给浏览器端代码，不要加 `PUBLIC_` 前缀。
+- 不要把草稿、后台页、评论审核数据、Supabase 私密字段、环境变量或 `.env` 注入 AI 上下文。
+- 如修改 `/api/ai` 请求/响应格式、fallback 逻辑或检索策略，需同步更新 `docs/API_TECHNICAL_DOCUMENTATION.md`。
+- AI UI 调整应保持 `data-pagefind-ignore="all"`，避免聊天文案进入 Pagefind 搜索索引。
+- AI UI 的拖拽/缩放逻辑应继续使用视口内 clamp，拖动或缩放时先把面板切到 `position: fixed` 再写入 `left/top/width/height`，避免 absolute/fixed 坐标混用导致面板消失。
+- AI UI 改动优先保持静态 CSS + 少量原生 pointer 事件，不新增前端框架、API、数据库或持久化状态；如确需改请求/响应或服务端检索，再同步技术文档。
+
 ## Supabase
 
 当前交互表：
@@ -144,7 +173,8 @@ cover: /optional-cover.jpg # 可选，公开可访问的封面/社交分享图
 - 新评论成功进入 `pending` 后，可通过 `COMMENT_NOTIFY_WEBHOOK_URL` 发送通用 JSON 待审通知；通知失败、超时或 webhook 返回非 2xx 不影响评论提交，只记录服务端错误。
 - 待审通知只包含文章标题/链接、昵称、正文摘要、审核入口和评论 ID；审核入口应指向 `/admin/comments?status=pending&q=<commentId>` 直达该评论；不要加入邮箱、网站、user-agent、`ip_hash` 或原始 IP。
 - 后台审核接口使用 `Authorization: Bearer <BLOG_ADMIN_TOKEN>`。
-- 后台审核列表可扩展 query 参数，但优先复用 `blog_comments` 和现有 `/api/admin/comments`，不要为了筛选/搜索新增数据库表；`q` 为完整 UUID 时按 `id` 精确查找，其他值保留昵称/正文/slug 模糊搜索。
+- 后台审核列表可扩展 query 参数或轻量响应字段，但优先复用 `blog_comments` 和现有 `/api/admin/comments`，不要为了筛选/搜索/计数新增数据库表；`q` 为完整 UUID 时按 `id` 精确查找，其他值保留昵称/正文/slug 模糊搜索。
+- `/api/admin/comments` 的 GET 响应包含全局状态计数 `counts: { pending, approved, rejected }`，用于审核页状态 tab；该计数不受当前 `status` 或 `q` 筛选影响。
 - 改 Supabase schema 前，先查看现有迁移，优先新增迁移，不要直接改已应用迁移。
 
 ## 环境变量
@@ -162,6 +192,11 @@ COMMENT_RATE_LIMIT_SITE_MAX=5
 COMMENT_DUPLICATE_WINDOW_SECONDS=86400
 COMMENT_SPAM_WORDS=
 COMMENT_NOTIFY_WEBHOOK_URL=
+BEDROCK_REGION=us-east-1
+AWS_BEARER_TOKEN_BEDROCK=your-bedrock-api-key
+ANTHROPIC_MODEL=global.anthropic.claude-opus-4-8
+ANTHROPIC_DEFAULT_SONNET_MODEL=global.anthropic.claude-sonnet-4-6
+ANTHROPIC_DEFAULT_HAIKU_MODEL=global.anthropic.claude-haiku-4-5-20251001-v1:0
 ```
 
 - `SUPABASE_URL`：服务端 Supabase client 使用。
@@ -174,6 +209,11 @@ COMMENT_NOTIFY_WEBHOOK_URL=
 - `COMMENT_DUPLICATE_WINDOW_SECONDS`：重复正文检测窗口，默认 86400 秒。
 - `COMMENT_SPAM_WORDS`：逗号或换行分隔的敏感词/垃圾词；命中时服务端直接拒绝，不写入评论表。
 - `COMMENT_NOTIFY_WEBHOOK_URL`：可选，评论成功进入 `pending` 后接收通用 JSON webhook 的 `http` 或 `https` URL；为空时不发送通知，值本身可能包含 token，不要输出或提交。
+- `BEDROCK_REGION`：Bedrock Runtime 区域，默认 `us-east-1`；不要使用 Netlify 保留变量名 `AWS_REGION`。
+- `AWS_BEARER_TOKEN_BEDROCK`：Bedrock API key，仅服务端 `/api/ai` 使用，必须保密。
+- `ANTHROPIC_MODEL`：首选 Claude 模型，当前用于 Claude Opus 4.8；默认建议使用 `global.anthropic.claude-opus-4-8`，如有严格数据驻留要求可改用区域内模型 ID `anthropic.claude-opus-4-8` 并确认 `BEDROCK_REGION` 支持。
+- `ANTHROPIC_DEFAULT_SONNET_MODEL`：可选 Sonnet fallback 模型。
+- `ANTHROPIC_DEFAULT_HAIKU_MODEL`：可选 Haiku fallback 模型。
 
 ## Netlify
 
@@ -190,7 +230,7 @@ COMMENT_NOTIFY_WEBHOOK_URL=
 
 - 当前站点已连接 GitHub 仓库，`main` 分支 `git push origin main` 后由 Netlify 自动触发生产构建和部署。
 - 不再使用上传式部署；不要把本地 `.env`、`dist/`、`.netlify/` 或临时构建产物作为部署包上传。
-- Netlify 环境变量必须至少包含 `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`BLOG_ADMIN_TOKEN`、`PUBLIC_SITE_URL`；如需待审通知，额外配置 `COMMENT_NOTIFY_WEBHOOK_URL`。
+- Netlify 环境变量必须至少包含 `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`BLOG_ADMIN_TOKEN`、`PUBLIC_SITE_URL`；AI 功能还需要 `BEDROCK_REGION`、`AWS_BEARER_TOKEN_BEDROCK`、`ANTHROPIC_MODEL`，如需 fallback 再配置 `ANTHROPIC_DEFAULT_SONNET_MODEL`、`ANTHROPIC_DEFAULT_HAIKU_MODEL`；如需待审通知，额外配置 `COMMENT_NOTIFY_WEBHOOK_URL`。
 - 修改环境变量后需要重新部署，Netlify Functions 才会读取新值。
 - 部署后检查：
   - `https://macondo-co.netlify.app/`
@@ -199,6 +239,7 @@ COMMENT_NOTIFY_WEBHOOK_URL=
   - `https://macondo-co.netlify.app/about`
   - 一个文章详情页
   - 评论/点赞/阅读量 API 是否正常。
+  - AI 浮窗能回答“这个博客写什么的？”并引用真实文章标题或 `/posts/.../` 链接。
   - 若配置了 `COMMENT_NOTIFY_WEBHOOK_URL`，提交一条测试评论，确认后台可见且通知到达。
 
 ## 开发约定
@@ -211,6 +252,17 @@ COMMENT_NOTIFY_WEBHOOK_URL=
 - API 输入要做 slug、长度、URL、email 等校验；错误返回保持中文友好提示。
 - 数据库写操作只在服务端 API 中进行。
 - 公开发现 endpoint 不应泄露后台页、草稿文章或未发布内容。
+
+## 评论审核体验
+
+- 待审通知入口指向 `/admin/comments?status=pending&q=<commentId>`；审核者输入 token 后可直接载入这条评论。
+- 状态 tab 展示全局数量，例如 `待审核 3`、`已通过 12`、`已拒绝 4`；数量来自 `/api/admin/comments` 返回的 `counts`，不随关键词或评论 ID 筛选变化。
+- 打开 `/admin/comments` 时，如果当前浏览器会话已有 token，应默认载入待审列表；无 token 的普通入口提示“输入审核 token 后将载入待审列表。”。
+- 待审队列为空且无搜索词时，空状态应明确显示“当前没有待审评论”，不要只显示普通“没有评论”。
+- 审核通过或拒绝后，若当前 `q` 是评论 ID，页面会显示明确结果：`已通过这条评论。` / `已拒绝这条评论。`，并提供克制的 `查看文章` 链接。
+- 直达审核成功后会用 `history.replaceState()` 将 URL 更新为处理后的状态，例如 `status=approved&q=<commentId>` 或 `status=rejected&q=<commentId>`，刷新后仍能看到处理结果。
+- 如果评论已不在当前状态筛选下，审核页保留“已处理”的空状态，避免只显示普通空列表。
+- 该能力是 `src/pages/admin/comments.astro` 内的客户端体验优化，不新增数据库表，不新增 API；如确需扩展 `/api/admin/comments` 响应字段，需同步更新 `docs/API_TECHNICAL_DOCUMENTATION.md`。
 
 ## Git 工作流
 
@@ -231,5 +283,5 @@ git push origin main
 ## 安全提醒
 
 - 此项目历史对话里曾出现过敏感 Supabase 信息；正式长期运行前应轮换数据库密码和 service role key。
-- 截图、日志、终端输出里不要展示 service role key、数据库密码、admin token、webhook URL。
+- 截图、日志、终端输出里不要展示 service role key、数据库密码、admin token、webhook URL、Bedrock token。
 - 如果需要调试环境变量，只输出变量名是否存在，不输出变量值。
