@@ -17,6 +17,11 @@ interface Props {
     tags: string[];
   };
   structuredData?: Record<string, unknown>;
+  pageContext?:
+    | { kind: "home" }
+    | { kind: "post"; slug: string }
+    | { kind: "tagIndex" }
+    | { kind: "tag"; tag: string };
 }
 
 const {
@@ -27,7 +32,8 @@ const {
   noindex = false,
   type = "website",
   article,
-  structuredData
+  structuredData,
+  pageContext
 } = Astro.props;
 const pageTitle = title === site.name ? title : `${title} | ${site.name}`;
 const canonicalPath = currentPath === "/" ? "/" : currentPath.replace(/\/+$/, "");
@@ -110,6 +116,6 @@ const jsonLd = structuredData
         <span>© {new Date().getFullYear()} {site.author}. Built with Astro, Supabase and Netlify.</span>
       </footer>
     </div>
-    {!noindex && <AiChat />}
+    {!noindex && <AiChat pageContext={pageContext} />}
   </body>
 </html>

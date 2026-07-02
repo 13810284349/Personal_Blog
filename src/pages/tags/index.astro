@@ -5,7 +5,7 @@ import { getAllTags } from "@lib/posts";
 const tags = await getAllTags();
 ---
 
-<BaseLayout title="标签" description="按标签浏览自然选择的文章。">
+<BaseLayout title="标签" description="按标签浏览自然选择的文章。" pageContext={{ kind: "tagIndex" }}>
   <section class="intro">
     <div>
       <p class="eyebrow">Tags</p>

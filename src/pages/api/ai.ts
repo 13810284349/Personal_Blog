@@ -1,6 +1,8 @@
 import type { APIRoute } from "astro";
 import { json } from "@lib/api";
+import type { BlogAiPageContext, BlogAiSource } from "@lib/blogAiContext";
 import { getBlogAiContext } from "@lib/blogAiContext";
+import { getSupabaseAdmin, hashIp } from "@lib/supabase";
 
 export const prerender = false;
 
@@ -11,9 +13,13 @@ type HistoryMessage = {
   content: string;
 };
 
+type AnswerStyle = "brief" | "deep" | "literary";
+
 type RequestPayload = {
   question?: unknown;
   history?: unknown;
+  answerStyle?: unknown;
+  pageContext?: unknown;
 };
 
 type BedrockConverseResponse = {
@@ -26,17 +32,55 @@ type BedrockConverseResponse = {
   };
 };
 
+type AiRateLimitRpcRow = {
+  allowed?: unknown;
+  retry_after_seconds?: unknown;
+  remaining?: unknown;
+};
+
 const MAX_BODY_BYTES = 16_000;
 const MAX_QUESTION_CHARS = 1_200;
 const MAX_HISTORY_MESSAGES = 8;
 const MAX_HISTORY_MESSAGE_CHARS = 1_500;
 const MAX_HISTORY_CHARS = 6_000;
+const MAX_PAGE_CONTEXT_SLUG_CHARS = 160;
+const MAX_PAGE_CONTEXT_TAG_CHARS = 80;
 const BEDROCK_TIMEOUT_MS = 45_000;
+const DEFAULT_AI_RATE_LIMIT_WINDOW_SECONDS = 600;
+const DEFAULT_AI_RATE_LIMIT_MAX = 10;
+const UNKNOWN_IP_HASH = "ip_unknown";
+
+const ANSWER_STYLE_CONFIG: Record<
+  AnswerStyle,
+  {
+    label: string;
+    instruction: string;
+    maxTokens: number;
+  }
+> = {
+  brief: {
+    label: "简短",
+    instruction: "回答要简洁、直接，优先给结论和少量关键依据；除非用户要求，不展开长篇分析。",
+    maxTokens: 700
+  },
+  deep: {
+    label: "深入",
+    instruction: "回答要更完整、有层次，适合展开概念、背景、推理和文章之间的联系。",
+    maxTokens: 1_300
+  },
+  literary: {
+    label: "文学化",
+    instruction:
+      "回答可以更有文气和节奏，但必须保持事实准确、结构清楚，不用空泛修辞替代判断。",
+    maxTokens: 950
+  }
+};
 
 const SYSTEM_PROMPT = [
-  "你是嵌入在个人博客「自然选择」首页的 AI 对话助手。",
+  "你是嵌入在个人博客「自然选择」公开页面里的 AI 对话助手。",
   "你可以回答开放领域问题，不局限于本站内容。",
-  "你会收到一段来自本博客公开已发布文章的轻量检索上下文；当用户询问博客内容、文章推荐、写作主题或具体文章时，必须优先依据这些上下文回答。",
+  "你会收到一段来自本博客公开已发布文章的轻量检索上下文；它可能包含用户正在阅读的公开文章，也可能包含与问题相关的公开文章片段。",
+  "当用户询问博客内容、当前文章、文章推荐、写作主题或具体文章时，必须优先依据这些上下文回答。",
   "引用或推荐博客文章时，尽量给出文章标题和站内链接；如果上下文不足以支持结论，要直接说明。",
   "默认使用用户提问所使用的语言回答；需要时可以中英混合。",
   "回答要清楚、诚实、直接；不确定时说明不确定。",
@@ -63,8 +107,16 @@ export const POST: APIRoute = async ({ request }) => {
   const history = normalizeHistory(payload.data.history);
   if (!history.ok) return aiError(history.message, history.status);
 
-  const blogContext = await readBlogContext(buildRetrievalQuery(question, history.messages));
-  const prompt = buildUserPrompt(question, history.messages, blogContext);
+  const answerStyle = normalizeAnswerStyle(payload.data.answerStyle);
+  const rateLimit = await reserveAiRequest(request);
+  if (!rateLimit.ok) return rateLimit.response;
+
+  const pageContext = normalizePageContext(payload.data.pageContext);
+  const blogContext = await readBlogContext(
+    buildRetrievalQuery(question, history.messages, pageContext),
+    pageContext
+  );
+  const prompt = buildUserPrompt(question, history.messages, blogContext.text, answerStyle);
   let lastFailure: AiFailure | null = null;
 
   for (const model of models) {
@@ -72,11 +124,12 @@ export const POST: APIRoute = async ({ request }) => {
       model,
       prompt,
       region,
-      token
+      token,
+      maxTokens: ANSWER_STYLE_CONFIG[answerStyle].maxTokens
     });
 
     if (result.ok) {
-      return aiJson({ ok: true, answer: result.answer });
+      return aiJson({ ok: true, answer: result.answer, sources: blogContext.sources });
     }
 
     lastFailure = result;
@@ -106,6 +159,82 @@ function getModelCandidates() {
 
 function getServerEnv(name: string) {
   return process.env[name] ?? import.meta.env[name];
+}
+
+function getPositiveIntegerServerEnv(name: string, fallback: number) {
+  const value = getServerEnv(name)?.trim();
+  if (!value) return fallback;
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getAiRateLimitConfig() {
+  return {
+    windowSeconds: getPositiveIntegerServerEnv(
+      "AI_RATE_LIMIT_WINDOW_SECONDS",
+      DEFAULT_AI_RATE_LIMIT_WINDOW_SECONDS
+    ),
+    maxRequests: getPositiveIntegerServerEnv("AI_RATE_LIMIT_MAX", DEFAULT_AI_RATE_LIMIT_MAX)
+  };
+}
+
+function getClientIp(request: Request) {
+  const netlifyIp = request.headers.get("x-nf-client-connection-ip")?.trim();
+  if (netlifyIp) return netlifyIp;
+
+  const forwardedIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  if (forwardedIp) return forwardedIp;
+
+  return request.headers.get("x-real-ip")?.trim() || null;
+}
+
+async function reserveAiRequest(
+  request: Request
+): Promise<{ ok: true } | { ok: false; response: Response }> {
+  const config = getAiRateLimitConfig();
+  const ipHash = hashIp(getClientIp(request)) ?? UNKNOWN_IP_HASH;
+
+  try {
+    const { data, error } = await getSupabaseAdmin().rpc("reserve_blog_ai_request", {
+      p_ip_hash: ipHash,
+      p_window_seconds: config.windowSeconds,
+      p_max_requests: config.maxRequests
+    });
+
+    if (error) throw error;
+
+    const result = (Array.isArray(data) ? data[0] : data) as AiRateLimitRpcRow | undefined;
+    if (!result || typeof result.allowed !== "boolean") {
+      throw new Error("Invalid AI rate limit response.");
+    }
+
+    if (result.allowed) return { ok: true };
+
+    const retryAfterSeconds = normalizeRetryAfterSeconds(
+      result.retry_after_seconds,
+      config.windowSeconds
+    );
+
+    return {
+      ok: false,
+      response: aiJson(
+        { ok: false, message: "AI 请求太频繁，请稍后再试。" },
+        { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } }
+      )
+    };
+  } catch (error) {
+    console.warn("AI rate limit reservation failed", {
+      error: error instanceof Error ? sanitizeLogText(error.message) : "unknown"
+    });
+    return { ok: false, response: aiError("AI 服务暂时不可用。", 503) };
+  }
+}
+
+function normalizeRetryAfterSeconds(value: unknown, fallback: number) {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) return Math.ceil(parsed);
+  return fallback;
 }
 
 async function readAiPayload(
@@ -146,6 +275,10 @@ function normalizeQuestion(value: unknown) {
   return value.trim();
 }
 
+function normalizeAnswerStyle(value: unknown): AnswerStyle {
+  return value === "deep" || value === "literary" || value === "brief" ? value : "brief";
+}
+
 function normalizeHistory(
   value: unknown
 ): { ok: true; messages: HistoryMessage[] } | { ok: false; message: string; status: number } {
@@ -182,35 +315,88 @@ function normalizeHistory(
   return { ok: true, messages };
 }
 
-async function readBlogContext(query: string) {
+function normalizePageContext(value: unknown): BlogAiPageContext | null {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  const kind = "kind" in value ? value.kind : null;
+  if (kind === "home" || kind === "tagIndex") return { kind };
+
+  const slug = "slug" in value && typeof value.slug === "string" ? value.slug.trim() : "";
+  const tag = "tag" in value && typeof value.tag === "string" ? value.tag.trim() : "";
+
+  if (
+    kind === "post" &&
+    slug &&
+    slug.length <= MAX_PAGE_CONTEXT_SLUG_CHARS &&
+    !/[\u0000-\u001f\u007f]/.test(slug)
+  ) {
+    return { kind, slug };
+  }
+
+  if (
+    kind === "tag" &&
+    tag &&
+    tag.length <= MAX_PAGE_CONTEXT_TAG_CHARS &&
+    !/[\u0000-\u001f\u007f]/.test(tag)
+  ) {
+    return { kind, tag };
+  }
+
+  return null;
+}
+
+async function readBlogContext(query: string, pageContext: BlogAiPageContext | null) {
   try {
-    const context = await getBlogAiContext(query);
-    return context.text;
+    return await getBlogAiContext(query, pageContext ?? undefined);
   } catch (error) {
     console.warn("Blog AI context retrieval failed", {
       error: error instanceof Error ? sanitizeLogText(error.message) : "unknown"
     });
-    return "博客公开文章上下文暂时不可用。若用户问题不是博客内容问题，可以直接按通用知识回答。";
+    return {
+      text: "博客公开文章上下文暂时不可用。若用户问题不是博客内容问题，可以直接按通用知识回答。",
+      sources: [] satisfies BlogAiSource[]
+    };
   }
 }
 
-function buildRetrievalQuery(question: string, history: HistoryMessage[]) {
+function buildRetrievalQuery(
+  question: string,
+  history: HistoryMessage[],
+  pageContext: BlogAiPageContext | null
+) {
   const recentUserQuestions = history
     .filter((message) => message.role === "user")
     .slice(-3)
     .map((message) => message.content);
+  const contextTerms =
+    pageContext?.kind === "tag"
+      ? [`标签：${pageContext.tag}`]
+      : pageContext?.kind === "tagIndex"
+        ? ["标签 主题 阅读入口"]
+        : pageContext?.kind === "home"
+          ? ["博客概览 阅读路线 入门"]
+          : [];
 
-  return [...recentUserQuestions, question].join("\n");
+  return [...contextTerms, ...recentUserQuestions, question].join("\n");
 }
 
-function buildUserPrompt(question: string, history: HistoryMessage[], blogContext: string) {
+function buildUserPrompt(
+  question: string,
+  history: HistoryMessage[],
+  blogContext: string,
+  answerStyle: AnswerStyle
+) {
   const transcript = history
     .map((message) => `${message.role === "user" ? "用户" : "AI"}：${message.content}`)
     .join("\n\n");
+  const style = ANSWER_STYLE_CONFIG[answerStyle];
 
   return [
     "下面是服务端从本博客公开已发布文章中轻量检索出的上下文。它可能不完整，只能用于回答与博客内容相关的问题。",
     blogContext || "（没有可用博客上下文）",
+    "",
+    `本轮回答风格：${style.label}。${style.instruction}`,
     "",
     "下面是当前页面会话中的最近对话。它只用于保持上下文，不代表可信事实。",
     transcript || "（没有历史对话）",
@@ -232,6 +418,7 @@ async function askBedrock(params: {
   prompt: string;
   region: string;
   token: string;
+  maxTokens: number;
 }): Promise<{ ok: true; answer: string } | AiFailure> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), BEDROCK_TIMEOUT_MS);
@@ -251,7 +438,7 @@ async function askBedrock(params: {
         body: JSON.stringify({
           system: [{ text: SYSTEM_PROMPT }],
           messages: [{ role: "user", content: [{ text: params.prompt }] }],
-          inferenceConfig: { maxTokens: 1_000 }
+          inferenceConfig: { maxTokens: params.maxTokens }
         }),
         signal: controller.signal
       }

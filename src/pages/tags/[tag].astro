@@ -17,7 +17,7 @@ const posts = (await getPublishedPosts()).filter((post) =>
 );
 ---
 
-<BaseLayout title={`标签：${tag}`} description={`标签 ${tag} 下的文章。`}>
+<BaseLayout title={`标签：${tag}`} description={`标签 ${tag} 下的文章。`} pageContext={{ kind: "tag", tag }}>
   <section class="intro">
     <div>
       <p class="eyebrow">Tag</p>

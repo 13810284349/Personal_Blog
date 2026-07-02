@@ -1,7 +1,7 @@
 # 自然选择 API 技术文档
 
 版本：v1.0  
-更新时间：2026-06-11
+更新时间：2026-06-14
 生产站点：https://macondo-co.netlify.app
 
 ## 1. 总览
@@ -11,7 +11,7 @@
 API 分为四类：
 
 - 公开互动 API：阅读量、点赞、公开评论。
-- 公开 AI API：首页对话框调用 Bedrock Claude，由服务端代理转发。
+- 公开 AI API：公开页面对话框调用 Bedrock Claude，由服务端代理转发。
 - 后台审核 API：评论审核列表与状态更新，需要 `BLOG_ADMIN_TOKEN`。
 - 公开页面与发现 endpoint：`/posts/[slug]`、`/archive`、`/search`、`/rss.xml`、`/sitemap.xml`、`/robots.txt`，用于文章阅读、文章封面、社交分享图、结构化 SEO、文章目录与标题锚点、相关文章推荐、归档浏览、站内搜索、订阅和搜索引擎发现。
 
@@ -88,6 +88,8 @@ AI 对话相关环境变量：
 | `ANTHROPIC_MODEL` | 无 | 首选 Claude 模型，当前建议 `global.anthropic.claude-opus-4-8` |
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | 空 | 可选 Sonnet fallback 模型 |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | 空 | 可选 Haiku fallback 模型 |
+| `AI_RATE_LIMIT_WINDOW_SECONDS` | `600` | 同一 IP hash 的 AI 请求限流窗口 |
+| `AI_RATE_LIMIT_MAX` | `10` | 同一 IP hash 在窗口内允许的 AI 请求数 |
 
 ## 3. API 清单
 
@@ -98,7 +100,8 @@ AI 对话相关环境变量：
 | `/api/like` | POST | 无 | 记录一次文章喜欢 |
 | `/api/comments?slug=...` | GET | 无 | 读取已审核通过评论 |
 | `/api/comments` | POST | 无 | 提交新评论，默认进入待审核 |
-| `/api/ai` | POST | 无 | 首页 AI 对话框，服务端调用 Bedrock Claude |
+| `/api/ai` | POST | 无 | 公开页面 AI 对话框，服务端调用 Bedrock Claude |
+| `/api/ai-feedback` | POST | 无 | 保存 AI 回答“有帮助 / 没帮助”反馈摘要 |
 | `/api/admin/comments?status=...&q=...` | GET | Bearer token | 读取后台评论列表 |
 | `/api/admin/comments` | PATCH | Bearer token | 更新评论审核状态 |
 | `/posts/[slug]` | GET | 无 | 阅读已发布文章详情，含封面图、社交分享图、结构化 SEO、文章目录、标题锚点、相关文章推荐和相邻文章导航 |
@@ -112,7 +115,7 @@ AI 对话相关环境变量：
 
 ### POST `/api/ai`
 
-首页 AI 对话框调用入口。浏览器只发送问题和当前页面内存中的短对话历史，Bedrock API key 只由服务端读取。服务端会从已发布 MDX 文章中做轻量本地检索，把相关标题、摘要、标签、链接和正文片段压缩后注入模型上下文，用于回答博客内容和文章推荐问题。
+公开页面 AI 对话框调用入口。浏览器只发送问题、当前页面内存中的短对话历史，以及可选的公开页面上下文标识；Bedrock API key 只由服务端读取。服务端会从已发布 MDX 文章中做本地检索，把相关标题、摘要、标签、链接和正文片段压缩后注入模型上下文，用于回答博客内容、当前文章和文章推荐问题。
 
 请求体：
 
@@ -122,7 +125,12 @@ AI 对话相关环境变量：
   "history": [
     { "role": "user", "content": "上一轮问题" },
     { "role": "assistant", "content": "上一轮回答" }
-  ]
+  ],
+  "answerStyle": "brief",
+  "pageContext": {
+    "kind": "post",
+    "slug": "large-model-history"
+  }
 }
 ```
 
@@ -132,13 +140,22 @@ AI 对话相关环境变量：
 | --- | --- | --- |
 | `question` | 是 | 1-1200 字符 |
 | `history` | 否 | 最多保留最近 8 条 `{ role, content }`，`role` 只能是 `user` 或 `assistant` |
+| `answerStyle` | 否 | `"brief"`、`"deep"`、`"literary"` 之一；缺失或无效时按 `"brief"` 处理 |
+| `pageContext` | 否 | 支持 `{ kind: "home" }`、`{ kind: "post", slug }`、`{ kind: "tagIndex" }`、`{ kind: "tag", tag }`；slug 最长 160 字符，tag 最长 80 字符 |
 
 成功响应：
 
 ```json
 {
   "ok": true,
-  "answer": "你好，愿你今天的判断慢一点，也稳一点。"
+  "answer": "你好，愿你今天的判断慢一点，也稳一点。",
+  "sources": [
+    {
+      "title": "文章标题",
+      "description": "文章摘要",
+      "url": "/posts/example-slug/"
+    }
+  ]
 }
 ```
 
@@ -146,12 +163,69 @@ AI 对话相关环境变量：
 
 - 服务端按 `ANTHROPIC_MODEL`、`ANTHROPIC_DEFAULT_SONNET_MODEL`、`ANTHROPIC_DEFAULT_HAIKU_MODEL` 的顺序调用 Bedrock Converse API，前一个模型失败时尝试下一个可用 fallback；首选 Opus 4.8 时默认使用 `global.anthropic.claude-opus-4-8`，如有严格数据驻留要求可改用区域内模型 ID `anthropic.claude-opus-4-8` 并确认 `BEDROCK_REGION` 支持。
 - 服务端会复用 `getPublishedPosts()` 检索公开已发布文章；不会读取草稿、后台页、评论审核数据、Supabase 私密字段、环境变量或 `.env`。
+- 首页、文章详情页、标签索引页和标签详情页会发送可选 `pageContext`，浏览器只发送公开页面标识，不发送正文；服务端重新从已发布文章集合中读取标题、摘要、标签、链接和压缩正文片段。
+- 当 `pageContext.kind` 为 `post` 且 slug 命中已发布文章时，服务端会把当前文章作为显式上下文；如果用户询问“相关、延伸、哪些文章”等问题，会优先加入共享标签的相关文章候选。
+- 当 `pageContext.kind` 为 `tag` 时，服务端会优先把该标签下的已发布文章加入上下文和来源候选，但不会阻止普通开放问题。
+- `answerStyle` 只影响本轮回答提示和 Bedrock `maxTokens`：`brief` 更短，`deep` 更完整，`literary` 更有文气但仍要求准确。
+- `pageContext` 缺失、格式无效、slug 不存在或指向未发布内容时，服务端退回普通博客检索，不泄露草稿或私密内容。
+- 本地检索使用标题、标签、摘要和正文片段的字段加权，并对单字段重复命中做上限控制，避免长文正文词频压过元数据。
+- 本地检索会做少量站内主题同义词/中英文混合扩展，例如 `百年孤独/Macondo/马孔多`、`AI/大模型/LLM`、`Astro/Supabase/Netlify`、物理与科学史主题等。
+- 正文检索按 h2/h3 所属段落片段打分，保留小节标题作为片段上下文，并只把 top 片段注入模型上下文。
+- 对“入门、先看、哪篇适合、从哪开始”等问题，服务端会优先排序适合作为起点或概览的文章；单章深读类文章仍可作为补充来源。
 - 本地检索不新增数据库、向量库、Pagefind API 或客户端索引下载；上下文只在服务端请求内临时生成，并限制总长度。
+- 成功响应的 `sources` 最多包含 3 条公开已发布文章来源，只返回 `title`、`description`、`url`，用于前端在回答下方展示来源卡片；没有明显相关来源时为空数组。
 - 服务端会限制请求体大小、问题长度、history 条数、history 单条长度和上游超时时间。
+- 通过请求体、问题长度和 history 校验后的请求，会先执行 Supabase-backed IP hash 限流，再做博客上下文检索或调用 Bedrock；默认同一 IP hash 每 10 分钟最多 10 次。
+- 限流使用 `x-nf-client-connection-ip`、`x-forwarded-for`、`x-real-ip` 推导客户端 IP 后做 hash；如果无法取得 IP，会落入共享的 `ip_unknown` 限流桶。
+- 超出限流时返回 `429` 和中文错误提示，并带 `Retry-After` 响应头；限流记录只保存 `ip_hash` 和 `created_at`，不保存原始 IP、问题、history、回答或来源内容。
+- 限流 RPC 不可用时服务端会失败关闭，返回“AI 服务暂时不可用。”，不会继续调用 Bedrock。
 - 系统提示不限制开放问答主题，但明确禁止泄露、猜测或编造密钥、环境变量、请求头和内部实现细节。
 - 上游错误只记录脱敏后的状态和摘要，不记录 Bearer token；浏览器只收到中文错误提示。
-- 首页组件只在当前页面会话内保留短对话上下文，刷新后清空，不落库，不调用 Supabase。
+- 浏览器端 AI 组件只在当前页面会话内保留短对话上下文，刷新后清空；对话内容不落库，浏览器不调用 Supabase。
 - 本地调试时将 Bedrock 变量写入项目根目录 `.env`，不要加 `PUBLIC_` 前缀；修改后重启 `npm run dev`。
+
+### POST `/api/ai-feedback`
+
+公开页面 AI 对话框的回答反馈入口。浏览器在用户点击“有帮助 / 没帮助”后提交当前回答的客户端消息 ID、评分、回答风格、公开页面上下文、来源卡片，以及问题/回答文本；服务端只保存截断摘要，不保存完整对话。
+
+请求体：
+
+```json
+{
+  "messageId": "9f1f6c7d-3b8d-4b2e-a9a1-7a7f2c2d1e8b",
+  "rating": "helpful",
+  "answerStyle": "brief",
+  "pageContext": { "kind": "tag", "tag": "AI" },
+  "question": "这个标签下先读哪篇？",
+  "answer": "可以先从……",
+  "sources": [
+    {
+      "title": "文章标题",
+      "description": "文章摘要",
+      "url": "/posts/example-slug/"
+    }
+  ]
+}
+```
+
+字段规则：
+
+| 字段 | 必填 | 规则 |
+| --- | --- | --- |
+| `messageId` | 是 | 客户端生成的 8-140 字符安全 ID，用于幂等 upsert |
+| `rating` | 是 | `"helpful"` 或 `"unhelpful"` |
+| `answerStyle` | 否 | `"brief"`、`"deep"`、`"literary"` 之一；缺失或无效时按 `"brief"` 保存 |
+| `pageContext` | 否 | 同 `/api/ai`，仅保存公开页面标识 |
+| `question` | 是 | 服务端压缩空白并截断为 `question_excerpt`，最多保存 700 字符 |
+| `answer` | 是 | 服务端压缩空白并截断为 `answer_excerpt`，最多保存 1800 字符 |
+| `sources` | 否 | 最多 3 条 `/posts/` 站内公开来源，只保存标题、摘要和 URL |
+
+行为说明：
+
+- API 使用 service role 写入 `blog_ai_feedback`，浏览器不直连 Supabase。
+- `client_message_id` 唯一；同一回答再次点击另一种评分会更新同一行。
+- 不保存原始 IP、user-agent、完整 history、完整回答、Bedrock token、Supabase key、后台数据或草稿内容。
+- 反馈数据用于之后调 prompt，不作为公开评论或公开内容展示；本轮不提供后台查看页面。
 
 ### GET `/api/post-stats`
 
@@ -611,6 +685,8 @@ Sitemap: https://macondo-co.netlify.app/sitemap.xml
 | `blog_post_stats` | 每篇文章阅读量、点赞数、公开评论数 |
 | `blog_post_likes` | 文章喜欢去重记录 |
 | `blog_comments` | 评论内容、审核状态和审核元数据 |
+| `blog_ai_request_events` | AI 请求限流事件，只保存 IP hash 和创建时间 |
+| `blog_ai_feedback` | AI 回答反馈摘要，用于后续 prompt 调整，不保存完整对话 |
 
 当前 RPC：
 
@@ -618,11 +694,16 @@ Sitemap: https://macondo-co.netlify.app/sitemap.xml
 | --- | --- |
 | `increment_blog_post_view(p_slug text)` | 创建或更新文章阅读量 |
 | `register_blog_post_like(p_slug text, p_visitor_id text)` | 注册点赞并返回最新统计 |
+| `reserve_blog_ai_request(p_ip_hash text, p_window_seconds integer, p_max_requests integer)` | 原子预约一次 AI 请求限流额度 |
 
 评论防刷相关索引：
 
 - `blog_comments_ip_post_created_idx`：支持同 IP hash + 同文章近期提交查询。
 - `blog_comments_ip_created_idx`：支持同 IP hash 全站近期提交查询。
+- `blog_ai_request_events_ip_created_idx`：支持同 IP hash AI 请求限流窗口查询。
+- `blog_ai_request_events_created_idx`：支持清理过期限流事件。
+- `blog_ai_feedback_rating_created_idx`：支持按有帮助/没帮助和创建时间查看反馈。
+- `blog_ai_feedback_style_created_idx`：支持按回答风格和创建时间查看反馈。
 
 权限规则：
 
@@ -641,7 +722,7 @@ Sitemap: https://macondo-co.netlify.app/sitemap.xml
 | `src/components/RelatedPosts.astro` | 不调用 JSON API，接收构建期计算好的相关文章列表；空列表时不输出 HTML |
 | `src/pages/archive.astro` | 不调用 JSON API，使用内容集合生成归档页 |
 | `src/pages/search.astro` | 不调用 JSON API，使用 Pagefind 静态 bundle 做浏览器端全文搜索 |
-| `src/components/AiChat.astro` | `/api/ai` |
+| `src/components/AiChat.astro` | `/api/ai`、`/api/ai-feedback` |
 | `src/components/Engagement.astro` | `/api/record-view`、`/api/post-stats`、`/api/like` |
 | `src/components/Comments.astro` | `/api/comments` |
 | `src/pages/admin/comments.astro` | `/api/admin/comments` |
@@ -670,7 +751,10 @@ curl -L http://127.0.0.1:4321/robots.txt
 curl -L "http://127.0.0.1:4321/api/post-stats?slugs=hello-world"
 curl -i http://127.0.0.1:4321/api/ai \
   -H "Content-Type: application/json" \
-  --data '{"question":"用中文说一句你好"}'
+  --data '{"question":"用中文说一句你好","answerStyle":"brief","pageContext":{"kind":"home"}}'
+curl -i http://127.0.0.1:4321/api/ai-feedback \
+  -H "Content-Type: application/json" \
+  --data '{"messageId":"local-smoke-0001","rating":"helpful","answerStyle":"brief","question":"测试问题","answer":"测试回答","sources":[]}'
 ```
 
 线上 endpoint 验证：
@@ -687,7 +771,10 @@ curl -L https://macondo-co.netlify.app/robots.txt
 curl -L "https://macondo-co.netlify.app/api/post-stats?slugs=hello-world"
 curl -i https://macondo-co.netlify.app/api/ai \
   -H "Content-Type: application/json" \
-  --data '{"question":"用中文说一句你好"}'
+  --data '{"question":"用中文说一句你好","answerStyle":"brief","pageContext":{"kind":"home"}}'
+curl -i https://macondo-co.netlify.app/api/ai-feedback \
+  -H "Content-Type: application/json" \
+  --data '{"messageId":"prod-smoke-0001","rating":"helpful","answerStyle":"brief","question":"测试问题","answer":"测试回答","sources":[]}'
 ```
 
 安全验证：

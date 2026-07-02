@@ -8,7 +8,7 @@ const posts = await getPublishedPosts();
 const tags = await getAllTags();
 ---
 
-<BaseLayout title={site.name} description={site.description}>
+<BaseLayout title={site.name} description={site.description} pageContext={{ kind: "home" }}>
   <section class="intro" aria-labelledby="home-title">
     <div>
       <p class="eyebrow">Personal notes / slow thinking</p>

@@ -2,14 +2,95 @@
 const panelId = "site-ai-chat-panel";
 const titleId = "site-ai-chat-title";
 const inputId = "site-ai-chat-question";
-const quickPrompts = [
+
+interface Props {
+  pageContext?: AiPageContext;
+}
+
+type AiPageContext =
+  | { kind: "home" }
+  | { kind: "post"; slug: string }
+  | { kind: "tagIndex" }
+  | { kind: "tag"; tag: string };
+
+const defaultInitialMessage = "你好，我在这里。把问题写下来就行。";
+const homeInitialMessage = "你在首页。想看主题概览、入门顺序，或挑一篇文章开始都可以。";
+const postInitialMessage = "我知道你正在读这篇文章。想总结、追问概念，或把它压成一段短评都可以。";
+const tagIndexInitialMessage = "这些标签是文章的入口。告诉我你的兴趣，我帮你挑一条阅读路径。";
+const tagInitialMessage = "你正在看一个标签下的文章。我可以帮你找起点、共同主题和延伸阅读。";
+const defaultQuickPrompts = [
   "这个博客写什么的？",
   "推荐我从哪篇文章开始？",
   "何为自然选择？"
 ];
+const homeQuickPrompts = [
+  "这个博客主要写什么？",
+  "推荐我从哪篇文章开始？",
+  "帮我排一条阅读路线"
+];
+const postQuickPrompts = [
+  "总结这篇文章",
+  "这篇文章和哪些文章相关",
+  "解释文中某个概念",
+  "提炼成一段短评"
+];
+const tagIndexQuickPrompts = [
+  "这些标签主要分成哪些主题？",
+  "我该从哪个标签开始读？",
+  "按兴趣推荐一个标签"
+];
+const tagQuickPrompts = [
+  "这个标签下先读哪篇？",
+  "给我一条这个标签的阅读路线",
+  "这个标签共同主题是什么？",
+  "读完后延伸到哪些文章？"
+];
+const { pageContext } = Astro.props;
+const normalizedPageContext = normalizePageContext(pageContext);
+const quickPrompts = getQuickPrompts(normalizedPageContext);
+const initialMessage = getInitialMessage(normalizedPageContext);
+const pageContextJson = normalizedPageContext
+  ? JSON.stringify(normalizedPageContext).replace(/</g, "\\u003c")
+  : undefined;
+
+function normalizePageContext(value: Props["pageContext"]): AiPageContext | null {
+  if (!value) return null;
+  if (value.kind === "home" || value.kind === "tagIndex") return { kind: value.kind };
+  if (value.kind === "post") {
+    const slug = value.slug.trim();
+    return slug ? { kind: "post", slug } : null;
+  }
+  if (value.kind === "tag") {
+    const tag = value.tag.trim();
+    return tag ? { kind: "tag", tag } : null;
+  }
+  return null;
+}
+
+function getQuickPrompts(context: AiPageContext | null) {
+  if (context?.kind === "home") return homeQuickPrompts;
+  if (context?.kind === "post") return postQuickPrompts;
+  if (context?.kind === "tagIndex") return tagIndexQuickPrompts;
+  if (context?.kind === "tag") return tagQuickPrompts;
+  return defaultQuickPrompts;
+}
+
+function getInitialMessage(context: AiPageContext | null) {
+  if (context?.kind === "home") return homeInitialMessage;
+  if (context?.kind === "post") return postInitialMessage;
+  if (context?.kind === "tagIndex") return tagIndexInitialMessage;
+  if (context?.kind === "tag") return tagInitialMessage;
+  return defaultInitialMessage;
+}
 ---
 
-<section class="ai-chat" data-ai-chat data-pagefind-ignore="all">
+<section
+  class="ai-chat"
+  data-ai-chat
+  data-pagefind-ignore="all"
+  data-ai-chat-initial-message={initialMessage}
+  data-ai-chat-page-context={pageContextJson}
+>
   <button
     class="ai-chat-toggle"
     type="button"
@@ -51,8 +132,30 @@ const quickPrompts = [
     <div class="ai-chat-log" data-ai-chat-log role="log" aria-live="polite" aria-label="AI 对话记录">
       <article class="ai-chat-message ai-chat-message-assistant">
         <span>AI</span>
-        <p>你好，我在这里。把问题写下来就行。</p>
+        <p>{initialMessage}</p>
       </article>
+    </div>
+
+    <div class="ai-chat-style" role="group" aria-label="回答风格">
+      <button
+        class="ai-chat-style-option is-active"
+        type="button"
+        aria-pressed="true"
+        data-ai-chat-style="brief"
+      >
+        简短
+      </button>
+      <button class="ai-chat-style-option" type="button" aria-pressed="false" data-ai-chat-style="deep">
+        深入
+      </button>
+      <button
+        class="ai-chat-style-option"
+        type="button"
+        aria-pressed="false"
+        data-ai-chat-style="literary"
+      >
+        文学化
+      </button>
     </div>
 
     <div class="ai-chat-prompts" aria-label="快捷问题">
@@ -102,10 +205,23 @@ const quickPrompts = [
     role: ChatRole;
     content: string;
   };
+  type AnswerStyle = "brief" | "deep" | "literary";
+  type AiSource = {
+    title: string;
+    description: string;
+    url: string;
+  };
+  type AiPageContext =
+    | { kind: "home" }
+    | { kind: "post"; slug: string }
+    | { kind: "tagIndex" }
+    | { kind: "tag"; tag: string };
+  type FeedbackRating = "helpful" | "unhelpful";
 
   const maxHistoryMessages = 8;
   const maxQuestionChars = 1200;
-  const initialMessage = "你好，我在这里。把问题写下来就行。";
+  const defaultAnswerStyle: AnswerStyle = "brief";
+  const fallbackInitialMessage = "你好，我在这里。把问题写下来就行。";
   const compactChatQuery = window.matchMedia("(max-width: 640px)");
   const dragThreshold = 6;
 
@@ -178,6 +294,308 @@ const quickPrompts = [
     return { article, content };
   }
 
+  function normalizeAiSources(value: unknown): AiSource[] {
+    if (!Array.isArray(value)) return [];
+
+    return value
+      .map((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+
+        const title = "title" in item && typeof item.title === "string" ? item.title.trim() : "";
+        const description =
+          "description" in item && typeof item.description === "string"
+            ? item.description.trim()
+            : "";
+        const url = "url" in item && typeof item.url === "string" ? item.url.trim() : "";
+
+        if (!title || !url.startsWith("/posts/")) return null;
+        return { title, description, url };
+      })
+      .filter((source): source is AiSource => Boolean(source))
+      .slice(0, 3);
+  }
+
+  function normalizeAiPageContext(value: string | undefined): AiPageContext | null {
+    if (!value) return null;
+
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+
+      const kind = "kind" in parsed ? parsed.kind : null;
+      if (kind === "home" || kind === "tagIndex") return { kind };
+
+      const slug = "slug" in parsed && typeof parsed.slug === "string" ? parsed.slug.trim() : "";
+      const tag = "tag" in parsed && typeof parsed.tag === "string" ? parsed.tag.trim() : "";
+
+      if (kind === "post" && slug && slug.length <= 160 && !/[\u0000-\u001f\u007f]/.test(slug)) {
+        return { kind, slug };
+      }
+
+      if (kind === "tag" && tag && tag.length <= 80 && !/[\u0000-\u001f\u007f]/.test(tag)) {
+        return { kind, tag };
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  function normalizeAnswerStyle(value: string | undefined): AnswerStyle {
+    return value === "deep" || value === "literary" || value === "brief"
+      ? value
+      : defaultAnswerStyle;
+  }
+
+  function createAiChatMessageId() {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+      return crypto.randomUUID();
+    }
+
+    return `ai-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  function createAiRequestBody(params: {
+    question: string;
+    history: ChatMessage[];
+    answerStyle: AnswerStyle;
+    pageContext: AiPageContext | null;
+  }) {
+    const body: {
+      question: string;
+      history: ChatMessage[];
+      answerStyle: AnswerStyle;
+      pageContext?: AiPageContext;
+    } = {
+      question: params.question,
+      history: params.history,
+      answerStyle: params.answerStyle
+    };
+
+    if (params.pageContext) body.pageContext = params.pageContext;
+    return body;
+  }
+
+  function createAiFeedbackBody(params: {
+    messageId: string;
+    rating: FeedbackRating;
+    question: string;
+    answer: string;
+    answerStyle: AnswerStyle;
+    sources: AiSource[];
+    pageContext: AiPageContext | null;
+  }) {
+    return {
+      messageId: params.messageId,
+      rating: params.rating,
+      question: params.question,
+      answer: params.answer,
+      answerStyle: params.answerStyle,
+      sources: params.sources,
+      ...(params.pageContext ? { pageContext: params.pageContext } : {})
+    };
+  }
+
+  async function readFeedbackResponse(response: Response) {
+    try {
+      return (await response.json()) as { ok?: boolean; message?: unknown };
+    } catch {
+      return {};
+    }
+  }
+
+  async function copyAiChatText(text: string) {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // Fall through to the textarea fallback below.
+      }
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    document.body.append(textarea);
+    textarea.select();
+
+    try {
+      return document.execCommand("copy");
+    } finally {
+      textarea.remove();
+    }
+  }
+
+  function updateAiChatStyleButtons(root: Element, answerStyle: AnswerStyle) {
+    root.querySelectorAll("[data-ai-chat-style]").forEach((button) => {
+      if (!(button instanceof HTMLButtonElement)) return;
+      const active = button.dataset.aiChatStyle === answerStyle;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  }
+
+  function createAiChatActions(params: {
+    messageId: string;
+    question: string;
+    answer: string;
+    answerStyle: AnswerStyle;
+    sources: AiSource[];
+    pageContext: AiPageContext | null;
+    note: Element | null;
+    status: Element | null;
+  }) {
+    const actions = document.createElement("div");
+    actions.className = "ai-chat-message-actions";
+
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.textContent = "复制";
+    copyButton.setAttribute("aria-label", "复制这条 AI 回答");
+
+    const helpfulButton = document.createElement("button");
+    helpfulButton.type = "button";
+    helpfulButton.textContent = "有帮助";
+    helpfulButton.dataset.aiChatFeedback = "helpful";
+    helpfulButton.setAttribute("aria-label", "标记这条 AI 回答有帮助");
+
+    const unhelpfulButton = document.createElement("button");
+    unhelpfulButton.type = "button";
+    unhelpfulButton.textContent = "没帮助";
+    unhelpfulButton.dataset.aiChatFeedback = "unhelpful";
+    unhelpfulButton.setAttribute("aria-label", "标记这条 AI 回答没帮助");
+
+    const feedbackButtons = [helpfulButton, unhelpfulButton];
+
+    function setFeedbackBusy(busy: boolean) {
+      feedbackButtons.forEach((button) => {
+        button.disabled = busy;
+      });
+    }
+
+    function setFeedbackState(rating: FeedbackRating) {
+      feedbackButtons.forEach((button) => {
+        const selected = button.dataset.aiChatFeedback === rating;
+        button.classList.toggle("is-selected", selected);
+        button.setAttribute("aria-pressed", String(selected));
+      });
+    }
+
+    copyButton.addEventListener("click", async () => {
+      const copied = await copyAiChatText(params.answer);
+      if (!copied) {
+        if (params.note) params.note.textContent = "复制失败，请手动选中回答。";
+        return null;
+      }
+
+      const previousText = copyButton.textContent;
+      copyButton.textContent = "已复制";
+      if (params.note) params.note.textContent = "";
+      window.setTimeout(() => {
+        copyButton.textContent = previousText;
+      }, 1400);
+    });
+
+    feedbackButtons.forEach((button) => {
+      button.setAttribute("aria-pressed", "false");
+      button.addEventListener("click", async () => {
+        const rating = button.dataset.aiChatFeedback as FeedbackRating | undefined;
+        if (rating !== "helpful" && rating !== "unhelpful") return;
+
+        setFeedbackBusy(true);
+        if (params.note) params.note.textContent = "";
+
+        try {
+          const response = await fetch("/api/ai-feedback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(createAiFeedbackBody({ ...params, rating }))
+          });
+          const payload = await readFeedbackResponse(response);
+
+          if (!response.ok || payload.ok === false) {
+            const message = typeof payload.message === "string" ? payload.message : "反馈提交失败。";
+            throw new Error(message);
+          }
+
+          setFeedbackState(rating);
+          if (params.status) params.status.textContent = "已记录";
+        } catch (error) {
+          if (params.note) {
+            params.note.textContent =
+              error instanceof Error && error.message ? error.message : "反馈提交失败。";
+          }
+        } finally {
+          setFeedbackBusy(false);
+        }
+      });
+    });
+
+    actions.append(copyButton, helpfulButton, unhelpfulButton);
+    return actions;
+  }
+
+  function createAiChatErrorMessage(message: string, onRetry: () => void) {
+    const assistantMessage = createAiChatMessage({ role: "assistant", content: message });
+    assistantMessage.article.classList.add("ai-chat-message-error");
+
+    const actions = document.createElement("div");
+    actions.className = "ai-chat-message-actions";
+
+    const retryButton = document.createElement("button");
+    retryButton.type = "button";
+    retryButton.textContent = "重试";
+    retryButton.addEventListener("click", () => {
+      retryButton.disabled = true;
+      assistantMessage.article.remove();
+      onRetry();
+    });
+
+    actions.append(retryButton);
+    assistantMessage.article.append(actions);
+    return assistantMessage.article;
+  }
+
+  function createAiChatSources(sources: AiSource[]) {
+    const section = document.createElement("section");
+    section.className = "ai-chat-sources";
+    section.setAttribute("aria-label", "文章来源");
+
+    const heading = document.createElement("p");
+    heading.className = "ai-chat-sources-title";
+    heading.textContent = "文章来源";
+    section.append(heading);
+
+    const list = document.createElement("div");
+    list.className = "ai-chat-source-list";
+
+    for (const source of sources) {
+      const link = document.createElement("a");
+      link.className = "ai-chat-source-card";
+      link.href = source.url;
+
+      const title = document.createElement("strong");
+      title.textContent = source.title;
+      link.append(title);
+
+      if (source.description) {
+        const description = document.createElement("p");
+        description.textContent = source.description;
+        link.append(description);
+      }
+
+      list.append(link);
+    }
+
+    section.append(list);
+    return section;
+  }
+
   function createAiChatPendingMessage() {
     const article = document.createElement("article");
     article.className = "ai-chat-message ai-chat-message-assistant ai-chat-message-pending";
@@ -220,12 +638,16 @@ const quickPrompts = [
     const submit = root.querySelector("[data-ai-chat-submit]");
     const clear = root.querySelector("[data-ai-chat-clear]");
     const prompts = root.querySelectorAll("[data-ai-chat-prompt]");
+    const styles = root.querySelectorAll("[data-ai-chat-style]");
 
     if (input instanceof HTMLTextAreaElement) input.disabled = busy;
     if (submit instanceof HTMLButtonElement) submit.disabled = busy;
     if (clear instanceof HTMLButtonElement) clear.disabled = busy;
     prompts.forEach((prompt) => {
       if (prompt instanceof HTMLButtonElement) prompt.disabled = busy;
+    });
+    styles.forEach((style) => {
+      if (style instanceof HTMLButtonElement) style.disabled = busy;
     });
   }
 
@@ -538,7 +960,12 @@ const quickPrompts = [
 
   async function readAiResponse(response: Response) {
     try {
-      return (await response.json()) as { ok?: boolean; answer?: unknown; message?: unknown };
+      return (await response.json()) as {
+        ok?: boolean;
+        answer?: unknown;
+        message?: unknown;
+        sources?: unknown;
+      };
     } catch {
       return {};
     }
@@ -555,6 +982,7 @@ const quickPrompts = [
     const close = root.querySelector("[data-ai-chat-close]");
     const clear = root.querySelector("[data-ai-chat-clear]");
     const prompts = root.querySelectorAll("[data-ai-chat-prompt]");
+    const styleButtons = root.querySelectorAll("[data-ai-chat-style]");
 
     if (
       !(root instanceof HTMLElement) ||
@@ -574,13 +1002,23 @@ const quickPrompts = [
     const chatPanel = panel;
     const chatToggle = toggle;
     let history: ChatMessage[] = [];
+    let currentAnswerStyle: AnswerStyle = defaultAnswerStyle;
+    const chatInitialMessage = chatRoot.dataset.aiChatInitialMessage || fallbackInitialMessage;
+    const pageContext = normalizeAiPageContext(chatRoot.dataset.aiChatPageContext);
 
     const toggleDrag = setupAiChatToggleDrag(chatRoot, chatToggle);
     setupAiChatResize(chatRoot, chatPanel);
     setupAiChatDrag(chatRoot, chatPanel);
     setupAiChatOutsideClose(chatRoot);
 
-    async function sendQuestion(rawQuestion: string) {
+    async function sendQuestion(
+      rawQuestion: string,
+      options: {
+        appendUser?: boolean;
+        historyOverride?: ChatMessage[];
+        answerStyle?: AnswerStyle;
+      } = {}
+    ) {
       const question = rawQuestion.trim();
       if (!question) return;
 
@@ -590,8 +1028,13 @@ const quickPrompts = [
       }
 
       setAiChatOpen(root, true);
-      const previousHistory = history.slice(-maxHistoryMessages);
-      chatLog.append(createAiChatMessage({ role: "user", content: question }).article);
+      const previousHistory = (options.historyOverride ?? history).slice(-maxHistoryMessages);
+      const answerStyle = options.answerStyle ?? currentAnswerStyle;
+      const shouldAppendUser = options.appendUser ?? true;
+
+      if (shouldAppendUser) {
+        chatLog.append(createAiChatMessage({ role: "user", content: question }).article);
+      }
       chatInput.value = "";
       scrollAiChatLog(chatLog);
 
@@ -607,7 +1050,7 @@ const quickPrompts = [
         const response = await fetch("/api/ai", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question, history: previousHistory })
+          body: JSON.stringify(createAiRequestBody({ question, history: previousHistory, answerStyle, pageContext }))
         });
         const payload = await readAiResponse(response);
         if (!response.ok || payload.ok === false || typeof payload.answer !== "string") {
@@ -617,9 +1060,28 @@ const quickPrompts = [
 
         pending.remove();
         const answer = payload.answer.trim();
+        const sources = normalizeAiSources(payload.sources);
+        const messageId = createAiChatMessageId();
         const assistantMessage = createAiChatMessage({ role: "assistant", content: "" });
         chatLog.append(assistantMessage.article);
         await typeAiChatText(assistantMessage.content, answer, chatLog);
+        if (sources.length > 0) {
+          assistantMessage.article.classList.add("ai-chat-message-with-sources");
+          assistantMessage.article.append(createAiChatSources(sources));
+          scrollAiChatLog(chatLog);
+        }
+        assistantMessage.article.append(
+          createAiChatActions({
+            messageId,
+            question,
+            answer,
+            answerStyle,
+            sources,
+            pageContext,
+            note,
+            status
+          })
+        );
 
         const nextHistory: ChatMessage[] = [
           ...previousHistory,
@@ -634,7 +1096,15 @@ const quickPrompts = [
           error instanceof Error && error.message.startsWith("api:")
             ? error.message.slice(4)
             : "AI 暂时没有回应，请稍后再试。";
-        chatLog.append(createAiChatMessage({ role: "assistant", content: message }).article);
+        chatLog.append(
+          createAiChatErrorMessage(message, () => {
+            sendQuestion(question, {
+              appendUser: false,
+              historyOverride: previousHistory,
+              answerStyle
+            });
+          })
+        );
         if (status) status.textContent = "暂不可用";
       } finally {
         setAiChatBusy(root, false);
@@ -659,7 +1129,7 @@ const quickPrompts = [
     clear?.addEventListener("click", () => {
       history = [];
       chatLog.innerHTML = "";
-      chatLog.append(createAiChatMessage({ role: "assistant", content: initialMessage }).article);
+      chatLog.append(createAiChatMessage({ role: "assistant", content: chatInitialMessage }).article);
       chatInput.value = "";
       if (note) note.textContent = "";
       if (status) status.textContent = "准备好了";
@@ -669,6 +1139,15 @@ const quickPrompts = [
     prompts.forEach((prompt) => {
       prompt.addEventListener("click", () => {
         if (prompt instanceof HTMLButtonElement) sendQuestion(prompt.dataset.aiChatPrompt ?? "");
+      });
+    });
+
+    styleButtons.forEach((styleButton) => {
+      if (!(styleButton instanceof HTMLButtonElement)) return;
+
+      styleButton.addEventListener("click", () => {
+        currentAnswerStyle = normalizeAnswerStyle(styleButton.dataset.aiChatStyle);
+        updateAiChatStyleButtons(chatRoot, currentAnswerStyle);
       });
     });
 

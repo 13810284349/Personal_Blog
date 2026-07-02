@@ -101,6 +101,7 @@ const articleStructuredData = {
     authorUrl,
     tags: post.data.tags
   }}
+  pageContext={{ kind: "post", slug: post.id }}
   structuredData={articleStructuredData}
 >
   <article>
