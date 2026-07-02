@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
-import { json } from "@lib/api";
+import type { ApiRequestContext, ApiResponseInit } from "@lib/api";
+import { createApiContext, json, logApiError } from "@lib/api";
 import { getSupabaseAdmin } from "@lib/supabase";
 
 export const prerender = false;
@@ -38,8 +39,9 @@ const MAX_PAGE_CONTEXT_SLUG_CHARS = 160;
 const MAX_PAGE_CONTEXT_TAG_CHARS = 80;
 
 export const POST: APIRoute = async ({ request }) => {
+  const context = createApiContext(request);
   const payload = await readFeedbackPayload(request);
-  if (!payload.ok) return feedbackError(payload.message, payload.status);
+  if (!payload.ok) return feedbackError(payload.message, payload.status, context);
 
   const messageId = normalizeMessageId(payload.data.messageId);
   const rating = normalizeRating(payload.data.rating);
@@ -49,9 +51,9 @@ export const POST: APIRoute = async ({ request }) => {
   const pageContext = normalizePageContext(payload.data.pageContext);
   const sources = normalizeSources(payload.data.sources);
 
-  if (!messageId) return feedbackError("反馈标识无效。");
-  if (!rating) return feedbackError("反馈类型无效。");
-  if (!questionExcerpt || !answerExcerpt) return feedbackError("反馈内容不完整。");
+  if (!messageId) return feedbackError("反馈标识无效。", 400, context);
+  if (!rating) return feedbackError("反馈类型无效。", 400, context);
+  if (!questionExcerpt || !answerExcerpt) return feedbackError("反馈内容不完整。", 400, context);
 
   try {
     const now = new Date().toISOString();
@@ -73,20 +75,31 @@ export const POST: APIRoute = async ({ request }) => {
 
     if (error) throw error;
 
-    return feedbackJson({ ok: true });
+    return feedbackJson({ ok: true }, { requestId: context });
   } catch (error) {
-    console.warn("AI feedback save failed", {
-      error: error instanceof Error ? sanitizeLogText(error.message) : "unknown"
+    logApiError(context, {
+      action: "save_ai_feedback",
+      status: 500,
+      error,
+      meta: {
+        rating,
+        answerStyle,
+        sourceCount: sources.length,
+        pageContextKind: pageContext?.kind ?? null
+      }
     });
-    return feedbackError("反馈暂时无法保存。", 500);
+    return feedbackError("反馈暂时无法保存。", 500, context);
   }
 };
 
-export const ALL: APIRoute = async () =>
-  feedbackJson(
-    { ok: false, message: "仅支持 POST 请求。" },
-    { status: 405, headers: { Allow: "POST" } }
+export const ALL: APIRoute = async ({ request }) => {
+  const context = createApiContext(request);
+
+  return feedbackJson(
+    { ok: false, message: "仅支持 POST 请求。", requestId: context.requestId },
+    { status: 405, headers: { Allow: "POST" }, requestId: context }
   );
+};
 
 async function readFeedbackPayload(
   request: Request
@@ -197,14 +210,7 @@ function normalizeSources(value: unknown): AiSource[] {
     .slice(0, 3);
 }
 
-function sanitizeLogText(value: string) {
-  return value
-    .replace(/[A-Za-z0-9_./+=:-]{32,}/g, "[redacted]")
-    .replace(/Bearer\s+[^\s"']+/gi, "Bearer [redacted]")
-    .slice(0, 500);
-}
-
-function feedbackJson(data: Parameters<typeof json>[0], init: ResponseInit = {}) {
+function feedbackJson(data: Parameters<typeof json>[0], init: ApiResponseInit = {}) {
   return json(data, {
     ...init,
     headers: {
@@ -214,6 +220,11 @@ function feedbackJson(data: Parameters<typeof json>[0], init: ResponseInit = {})
   });
 }
 
-function feedbackError(message: string, status = 400) {
-  return feedbackJson({ ok: false, message }, { status });
+function feedbackError(message: string, status = 400, requestId?: string | ApiRequestContext) {
+  const resolvedRequestId = typeof requestId === "string" ? requestId : requestId?.requestId;
+
+  return feedbackJson(
+    resolvedRequestId ? { ok: false, message, requestId: resolvedRequestId } : { ok: false, message },
+    { status, requestId }
+  );
 }

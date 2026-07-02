@@ -1,8 +1,10 @@
 import type { APIRoute } from "astro";
 import {
   cleanText,
+  createApiContext,
   errorJson,
   json,
+  logApiError,
   readJsonObject,
   requireAdmin
 } from "@lib/api";
@@ -15,14 +17,16 @@ const statuses = new Set<string>(statusValues);
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const GET: APIRoute = async ({ request }) => {
-  if (!requireAdmin(request)) return errorJson("未授权。", 401);
+  const context = createApiContext(request);
+
+  if (!requireAdmin(request)) return errorJson("未授权。", 401, { requestId: context });
 
   const url = new URL(request.url);
   const status = url.searchParams.get("status") ?? "pending";
   const rawQuery = cleanText(url.searchParams.get("q"), 80);
   const query = rawQuery.replace(/[%_*(),]/g, " ").replace(/\s+/g, " ").trim();
 
-  if (!statuses.has(status)) return errorJson("无效评论状态。");
+  if (!statuses.has(status)) return errorJson("无效评论状态。", 400, { requestId: context });
 
   try {
     const supabase = getSupabaseAdmin();
@@ -64,22 +68,30 @@ export const GET: APIRoute = async ({ request }) => {
       { pending: 0, approved: 0, rejected: 0 }
     );
 
-    return json({ ok: true, comments: data ?? [], counts });
-  } catch {
-    return errorJson("评论读取失败。", 500);
+    return json({ ok: true, comments: data ?? [], counts }, { requestId: context });
+  } catch (error) {
+    logApiError(context, {
+      action: "admin_list_comments",
+      status: 500,
+      error,
+      meta: { status, hasQuery: Boolean(query) }
+    });
+    return errorJson("评论读取失败。", 500, { requestId: context });
   }
 };
 
 export const PATCH: APIRoute = async ({ request }) => {
-  if (!requireAdmin(request)) return errorJson("未授权。", 401);
+  const context = createApiContext(request);
+
+  if (!requireAdmin(request)) return errorJson("未授权。", 401, { requestId: context });
 
   const body = await readJsonObject(request);
   const id = cleanText(body?.id, 80);
   const status = cleanText(body?.status, 20);
   const reviewedAt = status === "pending" ? null : new Date().toISOString();
 
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return errorJson("无效评论 ID。");
-  if (!statuses.has(status)) return errorJson("无效评论状态。");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return errorJson("无效评论 ID。", 400, { requestId: context });
+  if (!statuses.has(status)) return errorJson("无效评论状态。", 400, { requestId: context });
 
   try {
     const supabase = getSupabaseAdmin();
@@ -114,8 +126,14 @@ export const PATCH: APIRoute = async ({ request }) => {
         { onConflict: "slug" }
       );
 
-    return json({ ok: true, comment: updated });
-  } catch {
-    return errorJson("评论更新失败。", 500);
+    return json({ ok: true, comment: updated }, { requestId: context });
+  } catch (error) {
+    logApiError(context, {
+      action: "admin_update_comment",
+      status: 500,
+      error,
+      meta: { commentId: id, status }
+    });
+    return errorJson("评论更新失败。", 500, { requestId: context });
   }
 };

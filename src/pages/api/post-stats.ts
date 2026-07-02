@@ -1,23 +1,26 @@
 import type { APIRoute } from "astro";
-import { errorJson, json, normalizeSlug } from "@lib/api";
+import { createApiContext, errorJson, json, logApiError, normalizeSlug } from "@lib/api";
 import { getPublishedPostSlugs } from "@lib/posts";
 import { getSupabaseAdmin } from "@lib/supabase";
 
 export const prerender = false;
 
 export const GET: APIRoute = async ({ request }) => {
+  const context = createApiContext(request);
   const url = new URL(request.url);
   const requested = (url.searchParams.get("slugs") ?? "")
     .split(",")
     .map((slug) => normalizeSlug(slug))
     .filter((slug): slug is string => Boolean(slug));
 
-  if (!requested.length) return errorJson("缺少文章 slug。");
+  if (!requested.length) return errorJson("缺少文章 slug。", 400, { requestId: context });
 
   const knownSlugs = new Set(await getPublishedPostSlugs());
   const slugs = [...new Set(requested)].filter((slug) => knownSlugs.has(slug));
 
-  if (slugs.length !== requested.length) return errorJson("包含无效文章 slug。");
+  if (slugs.length !== requested.length) {
+    return errorJson("包含无效文章 slug。", 400, { requestId: context });
+  }
 
   try {
     const supabase = getSupabaseAdmin();
@@ -47,8 +50,14 @@ export const GET: APIRoute = async ({ request }) => {
       };
     }
 
-    return json({ ok: true, stats });
-  } catch {
-    return errorJson("Supabase 暂时不可用。", 500);
+    return json({ ok: true, stats }, { requestId: context });
+  } catch (error) {
+    logApiError(context, {
+      action: "read_post_stats",
+      status: 500,
+      error,
+      meta: { slugCount: slugs.length }
+    });
+    return errorJson("Supabase 暂时不可用。", 500, { requestId: context });
   }
 };

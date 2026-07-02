@@ -1,7 +1,7 @@
 # 自然选择个人博客技术架构文档
 
 版本：v1.0  
-更新时间：2026-06-05
+更新时间：2026-07-02
 站点：https://macondo-co.netlify.app  
 仓库：`13810284349/Personal_Blog`
 
@@ -96,6 +96,9 @@ pagefind --site dist
 .
 ├── AGENTS.md
 ├── docs/
+│   ├── API_TECHNICAL_DOCUMENTATION.md
+│   ├── DECISIONS.md
+│   ├── STATUS.md
 │   └── TECHNICAL_ARCHITECTURE.md
 ├── astro.config.mjs
 ├── netlify.toml
@@ -281,8 +284,10 @@ export const prerender = false;
 
 `src/lib/api.ts` 提供：
 
+- `createApiContext()`：为每个 API 请求生成或沿用安全格式的 requestId。
 - `json()`：统一 JSON Response。
-- `errorJson()`：统一错误 Response。
+- `errorJson()`：统一错误 Response，错误 body 包含 `requestId`。
+- `logApiError()`：统一脱敏结构化错误日志。
 - `normalizeSlug()`：slug 格式校验。
 - `requirePublishedSlug()`：校验 slug 格式且属于已发布文章。
 - `requireAdmin()`：校验 `Authorization: Bearer <BLOG_ADMIN_TOKEN>`。
@@ -632,7 +637,7 @@ curl -L https://macondo-co.netlify.app/about
 | 现象 | 优先检查 |
 | --- | --- |
 | 页面 404 | Astro 路由、文章 slug、Netlify deploy 是否最新 |
-| API 500 | Netlify Function logs、Supabase 环境变量是否存在 |
+| API 500 | 浏览器响应中的 `requestId`、Netlify Function logs、Supabase 环境变量是否存在 |
 | 点赞不增加 | visitor id、唯一约束、RPC 权限 |
 | 评论不展示 | 评论是否 approved、comments_count 是否刷新 |
 | 后台 401 | `BLOG_ADMIN_TOKEN` 是否配置、Authorization header 是否正确 |
@@ -643,8 +648,10 @@ curl -L https://macondo-co.netlify.app/about
 1. 本地运行 `npm run check`。
 2. 本地运行 `npm run build`。
 3. 检查 Netlify deploy logs。
-4. 检查 Netlify 环境变量是否存在。
-5. 检查 Supabase 表、RLS、RPC 权限。
+4. 用浏览器或 `curl -i` 取得错误响应中的 `requestId`。
+5. 在 Netlify Function logs 中用 `requestId` 对齐 endpoint、action、status 和脱敏错误摘要。
+6. 检查 Netlify 环境变量是否存在。
+7. 检查 Supabase 表、RLS、RPC 权限。
 
 ## 15. 演进路线
 
@@ -654,7 +661,7 @@ curl -L https://macondo-co.netlify.app/about
 - 增加 RSS feed 和 sitemap。
 - 增加文章归档页。
 - 增加评论审核状态筛选和搜索。
-- 给 API 增加更细的错误日志。
+- 增加生产 API 日志告警或外部聚合。
 
 中期可做：
 
@@ -696,4 +703,4 @@ curl -L https://macondo-co.netlify.app/about
 
 ## 17. 当前架构判断
 
-当前架构适合个人博客首版：静态内容与少量动态互动被清晰分离，维护成本低，部署路径短，安全边界相对明确。最大风险点不在页面渲染，而在密钥管理、评论滥用和生产环境观测。后续应优先完成 deploy preview 策略固化、密钥轮换、评论限流和日志观测。
+当前架构适合个人博客首版：静态内容与少量动态互动被清晰分离，维护成本低，部署路径短，安全边界相对明确。最大风险点不在页面渲染，而在密钥管理、评论滥用和生产环境观测。当前已具备 requestId 与脱敏 API 错误日志；后续应优先完成 deploy preview 策略固化、密钥轮换，并按真实流量评估是否需要外部日志聚合或告警。

@@ -1,4 +1,6 @@
 import { absoluteUrl } from "./discovery";
+import type { ApiRequestContext } from "./api";
+import { logApiError } from "./api";
 import { getPublishedPost } from "./posts";
 import { site } from "./site";
 
@@ -10,22 +12,23 @@ type PendingCommentNotification = {
   commentId: string;
   authorName: string;
   body: string;
+  context?: ApiRequestContext;
 };
 
-function getWebhookUrl() {
+function getWebhookUrl(context?: ApiRequestContext) {
   const rawUrl = process.env.COMMENT_NOTIFY_WEBHOOK_URL?.trim();
   if (!rawUrl) return null;
 
   try {
     const url = new URL(rawUrl);
     if (!["http:", "https:"].includes(url.protocol)) {
-      console.error("Comment notification webhook URL must use http or https.");
+      logNotificationError(context, "comment_notification_config", 500, "invalid protocol");
       return null;
     }
 
     return url.toString();
   } catch {
-    console.error("Comment notification webhook URL is invalid.");
+    logNotificationError(context, "comment_notification_config", 500, "invalid URL");
     return null;
   }
 }
@@ -37,7 +40,7 @@ function summarizeBody(body: string) {
 }
 
 export async function notifyPendingComment(params: PendingCommentNotification) {
-  const webhookUrl = getWebhookUrl();
+  const webhookUrl = getWebhookUrl(params.context);
   if (!webhookUrl) return;
 
   const controller = new AbortController();
@@ -78,15 +81,54 @@ export async function notifyPendingComment(params: PendingCommentNotification) {
     });
 
     if (!response.ok) {
-      console.error(`Comment notification webhook failed with status ${response.status}.`);
+      logNotificationError(
+        params.context,
+        "comment_notification_webhook",
+        response.status,
+        `webhook returned ${response.status}`,
+        {
+          slug: params.slug,
+          commentId: params.commentId
+        }
+      );
     }
   } catch (error) {
-    const message =
-      error instanceof Error && error.name === "AbortError"
-        ? "Comment notification webhook timed out."
-        : "Comment notification webhook request failed.";
-    console.error(message);
+    const isTimeout = error instanceof Error && error.name === "AbortError";
+    logNotificationError(
+      params.context,
+      "comment_notification_webhook",
+      isTimeout ? 504 : 502,
+      error,
+      {
+        slug: params.slug,
+        commentId: params.commentId
+      }
+    );
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function logNotificationError(
+  context: ApiRequestContext | undefined,
+  action: string,
+  status: number,
+  error: unknown,
+  meta?: Record<string, unknown>
+) {
+  if (!context) {
+    console.error("api.error", {
+      action,
+      status,
+      error: "Comment notification failed without request context."
+    });
+    return;
+  }
+
+  logApiError(context, {
+    action,
+    status,
+    error,
+    meta
+  });
 }

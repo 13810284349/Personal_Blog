@@ -1,7 +1,7 @@
 # 自然选择 API 技术文档
 
 版本：v1.0  
-更新时间：2026-06-14
+更新时间：2026-07-02
 生产站点：https://macondo-co.netlify.app
 
 ## 1. 总览
@@ -35,6 +35,7 @@ JSON API 响应头：
 
 ```http
 Content-Type: application/json
+X-Request-Id: <request-id>
 ```
 
 成功响应统一包含：
@@ -46,8 +47,16 @@ Content-Type: application/json
 错误响应统一包含：
 
 ```json
-{ "ok": false, "message": "中文错误提示。" }
+{ "ok": false, "message": "中文错误提示。", "requestId": "<request-id>" }
 ```
+
+请求 ID 与错误日志：
+
+- 所有 JSON API 响应都会带 `X-Request-Id`；如果请求头传入安全格式的 `X-Request-Id`，服务端会沿用，否则生成新的 UUID。
+- 错误响应 body 会额外返回同一个 `requestId`，方便把浏览器错误提示和 Netlify Function logs 对齐；成功响应 body 不新增字段。
+- 服务端异常日志使用结构化字段：`requestId`、`endpoint`、`method`、`action`、`status`、脱敏后的错误摘要，以及少量安全定位字段。
+- 普通输入校验错误不写错误日志；数据库、RPC、Bedrock、AI context、AI feedback 和评论通知等服务端或上游异常会写入日志。
+- 日志不得记录密钥、token、原始 IP、`ip_hash`、邮箱、网站、user-agent、webhook URL、环境变量值、评论正文全文、AI 问题全文、history、prompt 或回答全文。
 
 slug 校验规则：
 
@@ -739,6 +748,8 @@ npm run build
 
 本地 endpoint 验证：
 
+其中 `curl -i` 的错误探针应同时看到 `X-Request-Id` 响应头和 JSON body 中的 `requestId`。
+
 ```bash
 curl -L http://127.0.0.1:4321/posts/hello-world/ | rg "上一篇|下一篇"
 curl -L http://127.0.0.1:4321/posts/enterprise-ai-agent-platform/ | rg "article-toc|heading-anchor"
@@ -749,6 +760,11 @@ curl -L http://127.0.0.1:4321/rss.xml
 curl -L http://127.0.0.1:4321/sitemap.xml
 curl -L http://127.0.0.1:4321/robots.txt
 curl -L "http://127.0.0.1:4321/api/post-stats?slugs=hello-world"
+curl -i "http://127.0.0.1:4321/api/post-stats?slugs=not-a-real-post"
+curl -i -X GET http://127.0.0.1:4321/api/ai
+curl -i -X POST http://127.0.0.1:4321/api/ai-feedback \
+  -H "Content-Type: application/json" \
+  --data 'not-json'
 curl -i http://127.0.0.1:4321/api/ai \
   -H "Content-Type: application/json" \
   --data '{"question":"用中文说一句你好","answerStyle":"brief","pageContext":{"kind":"home"}}'
@@ -758,6 +774,8 @@ curl -i http://127.0.0.1:4321/api/ai-feedback \
 ```
 
 线上 endpoint 验证：
+
+其中 `curl -i` 的错误探针应同时看到 `X-Request-Id` 响应头和 JSON body 中的 `requestId`。
 
 ```bash
 curl -L https://macondo-co.netlify.app/posts/hello-world/ | rg "上一篇|下一篇"
@@ -769,6 +787,11 @@ curl -L https://macondo-co.netlify.app/rss.xml
 curl -L https://macondo-co.netlify.app/sitemap.xml
 curl -L https://macondo-co.netlify.app/robots.txt
 curl -L "https://macondo-co.netlify.app/api/post-stats?slugs=hello-world"
+curl -i "https://macondo-co.netlify.app/api/post-stats?slugs=not-a-real-post"
+curl -i -X GET https://macondo-co.netlify.app/api/ai
+curl -i -X POST https://macondo-co.netlify.app/api/ai-feedback \
+  -H "Content-Type: application/json" \
+  --data 'not-json'
 curl -i https://macondo-co.netlify.app/api/ai \
   -H "Content-Type: application/json" \
   --data '{"question":"用中文说一句你好","answerStyle":"brief","pageContext":{"kind":"home"}}'

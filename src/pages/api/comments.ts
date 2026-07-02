@@ -4,8 +4,10 @@ import {
   cleanOptionalEmail,
   cleanOptionalUrl,
   cleanText,
+  createApiContext,
   errorJson,
   json,
+  logApiError,
   readJsonObject,
   requirePublishedSlug
 } from "@lib/api";
@@ -127,10 +129,11 @@ async function hasRecentDuplicateComment(
 }
 
 export const GET: APIRoute = async ({ request }) => {
+  const context = createApiContext(request);
   const url = new URL(request.url);
   const slug = await requirePublishedSlug(url.searchParams.get("slug"));
 
-  if (!slug) return errorJson("无效文章 slug。");
+  if (!slug) return errorJson("无效文章 slug。", 400, { requestId: context });
 
   try {
     const supabase = getSupabaseAdmin();
@@ -143,13 +146,20 @@ export const GET: APIRoute = async ({ request }) => {
 
     if (error) throw error;
 
-    return json({ ok: true, comments: data ?? [] });
-  } catch {
-    return errorJson("评论读取失败。", 500);
+    return json({ ok: true, comments: data ?? [] }, { requestId: context });
+  } catch (error) {
+    logApiError(context, {
+      action: "list_approved_comments",
+      status: 500,
+      error,
+      meta: { slug }
+    });
+    return errorJson("评论读取失败。", 500, { requestId: context });
   }
 };
 
 export const POST: APIRoute = async ({ request }) => {
+  const context = createApiContext(request);
   const body = await readJsonObject(request);
   const slug = await requirePublishedSlug(body?.slug);
   const authorName = cleanText(body?.authorName, 80);
@@ -159,19 +169,25 @@ export const POST: APIRoute = async ({ request }) => {
   const authorEmail = cleanOptionalEmail(emailInput);
   const authorWebsite = cleanOptionalUrl(websiteInput);
 
-  if (!slug) return errorJson("无效文章 slug。");
-  if (cleanText(body?.company, 80)) return json({ ok: true, status: "pending" });
-  if (authorName.length < 1) return errorJson("昵称不能为空。");
-  if (commentBody.length < 2) return errorJson("评论内容太短。");
-  if (emailInput && !authorEmail) return errorJson("邮箱格式不正确。");
-  if (websiteInput && !authorWebsite) return errorJson("网站地址格式不正确。");
+  if (!slug) return errorJson("无效文章 slug。", 400, { requestId: context });
+  if (cleanText(body?.company, 80)) {
+    return json({ ok: true, status: "pending" }, { requestId: context });
+  }
+  if (authorName.length < 1) return errorJson("昵称不能为空。", 400, { requestId: context });
+  if (commentBody.length < 2) return errorJson("评论内容太短。", 400, { requestId: context });
+  if (emailInput && !authorEmail) return errorJson("邮箱格式不正确。", 400, { requestId: context });
+  if (websiteInput && !authorWebsite) {
+    return errorJson("网站地址格式不正确。", 400, { requestId: context });
+  }
 
   const abuseConfig = getCommentAbuseConfig();
   const ipHash = hashIp(getClientIp(request));
   const normalizedBody = normalizeCommentBody(commentBody);
 
   if (containsSpamWord([authorName, commentBody, authorWebsite ?? websiteInput], abuseConfig.spamWords)) {
-    return errorJson("评论内容包含暂不支持提交的词语，请调整后再试。");
+    return errorJson("评论内容包含暂不支持提交的词语，请调整后再试。", 400, {
+      requestId: context
+    });
   }
 
   try {
@@ -185,7 +201,11 @@ export const POST: APIRoute = async ({ request }) => {
         createdAfter(abuseConfig.postWindowSeconds)
       );
 
-      if (hasRecentComment) return errorJson("同一篇文章评论提交太频繁，请稍后再试。", 429);
+      if (hasRecentComment) {
+        return errorJson("同一篇文章评论提交太频繁，请稍后再试。", 429, {
+          requestId: context
+        });
+      }
 
       const siteCommentCount = await countRecentSiteComments(
         supabase,
@@ -194,7 +214,7 @@ export const POST: APIRoute = async ({ request }) => {
       );
 
       if (siteCommentCount >= abuseConfig.siteMax) {
-        return errorJson("评论提交太频繁，请稍后再试。", 429);
+        return errorJson("评论提交太频繁，请稍后再试。", 429, { requestId: context });
       }
     }
 
@@ -205,11 +225,15 @@ export const POST: APIRoute = async ({ request }) => {
       since: createdAfter(abuseConfig.duplicateWindowSeconds)
     });
 
-    if (hasDuplicateComment) return errorJson("请不要重复提交相同评论。", 409);
+    if (hasDuplicateComment) {
+      return errorJson("请不要重复提交相同评论。", 409, { requestId: context });
+    }
 
-    await supabase
+    const { error: statsError } = await supabase
       .from("blog_post_stats")
       .upsert({ slug }, { onConflict: "slug", ignoreDuplicates: true });
+
+    if (statsError) throw statsError;
 
     const { data, error } = await supabase
       .from("blog_comments")
@@ -232,11 +256,18 @@ export const POST: APIRoute = async ({ request }) => {
       slug,
       commentId: data.id,
       authorName,
-      body: commentBody
+      body: commentBody,
+      context
     });
 
-    return json({ ok: true, comment: data }, { status: 201 });
-  } catch {
-    return errorJson("评论提交失败。", 500);
+    return json({ ok: true, comment: data }, { status: 201, requestId: context });
+  } catch (error) {
+    logApiError(context, {
+      action: "submit_comment",
+      status: 500,
+      error,
+      meta: { slug }
+    });
+    return errorJson("评论提交失败。", 500, { requestId: context });
   }
 };

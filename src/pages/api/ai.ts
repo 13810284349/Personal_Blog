@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
-import { json } from "@lib/api";
+import type { ApiRequestContext, ApiResponseInit } from "@lib/api";
+import { createApiContext, json, logApiError } from "@lib/api";
 import type { BlogAiPageContext, BlogAiSource } from "@lib/blogAiContext";
 import { getBlogAiContext } from "@lib/blogAiContext";
 import { getSupabaseAdmin, hashIp } from "@lib/supabase";
@@ -89,32 +90,40 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 export const POST: APIRoute = async ({ request }) => {
+  const context = createApiContext(request);
   const token = getServerEnv("AWS_BEARER_TOKEN_BEDROCK")?.trim();
   const models = getModelCandidates();
   const region = getServerEnv("BEDROCK_REGION")?.trim() || "us-east-1";
 
   if (!token || models.length === 0) {
-    return aiError("AI 服务尚未配置。", 500);
+    logApiError(context, {
+      action: "configure_ai_service",
+      status: 500,
+      error: new Error("AI service is missing server configuration."),
+      meta: { bedrockAuthConfigured: Boolean(token), modelCount: models.length }
+    });
+    return aiError("AI 服务尚未配置。", 500, context);
   }
 
   const payload = await readAiPayload(request);
-  if (!payload.ok) return aiError(payload.message, payload.status);
+  if (!payload.ok) return aiError(payload.message, payload.status, context);
 
   const question = normalizeQuestion(payload.data.question);
-  if (!question) return aiError("问题不能为空。");
-  if (question.length > MAX_QUESTION_CHARS) return aiError("问题太长，请压缩后再试。", 413);
+  if (!question) return aiError("问题不能为空。", 400, context);
+  if (question.length > MAX_QUESTION_CHARS) return aiError("问题太长，请压缩后再试。", 413, context);
 
   const history = normalizeHistory(payload.data.history);
-  if (!history.ok) return aiError(history.message, history.status);
+  if (!history.ok) return aiError(history.message, history.status, context);
 
   const answerStyle = normalizeAnswerStyle(payload.data.answerStyle);
-  const rateLimit = await reserveAiRequest(request);
+  const rateLimit = await reserveAiRequest(request, context);
   if (!rateLimit.ok) return rateLimit.response;
 
   const pageContext = normalizePageContext(payload.data.pageContext);
   const blogContext = await readBlogContext(
     buildRetrievalQuery(question, history.messages, pageContext),
-    pageContext
+    pageContext,
+    context
   );
   const prompt = buildUserPrompt(question, history.messages, blogContext.text, answerStyle);
   let lastFailure: AiFailure | null = null;
@@ -125,25 +134,31 @@ export const POST: APIRoute = async ({ request }) => {
       prompt,
       region,
       token,
-      maxTokens: ANSWER_STYLE_CONFIG[answerStyle].maxTokens
+      maxTokens: ANSWER_STYLE_CONFIG[answerStyle].maxTokens,
+      context
     });
 
     if (result.ok) {
-      return aiJson({ ok: true, answer: result.answer, sources: blogContext.sources });
+      return aiJson({ ok: true, answer: result.answer, sources: blogContext.sources }, {
+        requestId: context
+      });
     }
 
     lastFailure = result;
     if (!result.shouldFallback) break;
   }
 
-  return aiError(lastFailure?.message ?? "AI 服务暂时不可用。", lastFailure?.status ?? 502);
+  return aiError(lastFailure?.message ?? "AI 服务暂时不可用。", lastFailure?.status ?? 502, context);
 };
 
-export const ALL: APIRoute = async () =>
-  aiJson(
-    { ok: false, message: "仅支持 POST 请求。" },
-    { status: 405, headers: { Allow: "POST" } }
+export const ALL: APIRoute = async ({ request }) => {
+  const context = createApiContext(request);
+
+  return aiJson(
+    { ok: false, message: "仅支持 POST 请求。", requestId: context.requestId },
+    { status: 405, headers: { Allow: "POST" }, requestId: context }
   );
+};
 
 function getModelCandidates() {
   return [
@@ -190,7 +205,8 @@ function getClientIp(request: Request) {
 }
 
 async function reserveAiRequest(
-  request: Request
+  request: Request,
+  context: ApiRequestContext
 ): Promise<{ ok: true } | { ok: false; response: Response }> {
   const config = getAiRateLimitConfig();
   const ipHash = hashIp(getClientIp(request)) ?? UNKNOWN_IP_HASH;
@@ -219,15 +235,21 @@ async function reserveAiRequest(
     return {
       ok: false,
       response: aiJson(
-        { ok: false, message: "AI 请求太频繁，请稍后再试。" },
-        { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } }
+        { ok: false, message: "AI 请求太频繁，请稍后再试。", requestId: context.requestId },
+        {
+          status: 429,
+          headers: { "Retry-After": String(retryAfterSeconds) },
+          requestId: context
+        }
       )
     };
   } catch (error) {
-    console.warn("AI rate limit reservation failed", {
-      error: error instanceof Error ? sanitizeLogText(error.message) : "unknown"
+    logApiError(context, {
+      action: "reserve_ai_rate_limit",
+      status: 503,
+      error
     });
-    return { ok: false, response: aiError("AI 服务暂时不可用。", 503) };
+    return { ok: false, response: aiError("AI 服务暂时不可用。", 503, context) };
   }
 }
 
@@ -346,12 +368,19 @@ function normalizePageContext(value: unknown): BlogAiPageContext | null {
   return null;
 }
 
-async function readBlogContext(query: string, pageContext: BlogAiPageContext | null) {
+async function readBlogContext(
+  query: string,
+  pageContext: BlogAiPageContext | null,
+  context: ApiRequestContext
+) {
   try {
     return await getBlogAiContext(query, pageContext ?? undefined);
   } catch (error) {
-    console.warn("Blog AI context retrieval failed", {
-      error: error instanceof Error ? sanitizeLogText(error.message) : "unknown"
+    logApiError(context, {
+      action: "read_blog_ai_context",
+      status: 500,
+      error,
+      meta: { pageContextKind: pageContext?.kind ?? null }
     });
     return {
       text: "博客公开文章上下文暂时不可用。若用户问题不是博客内容问题，可以直接按通用知识回答。",
@@ -419,6 +448,7 @@ async function askBedrock(params: {
   region: string;
   token: string;
   maxTokens: number;
+  context: ApiRequestContext;
 }): Promise<{ ok: true; answer: string } | AiFailure> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), BEDROCK_TIMEOUT_MS);
@@ -445,16 +475,22 @@ async function askBedrock(params: {
     );
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.warn("Bedrock Converse request failed", {
-        model: params.model,
-        status: response.status,
-        body: sanitizeLogText(errorText)
+      const message = classifyBedrockError(response.status);
+      logApiError(params.context, {
+        action: "bedrock_converse",
+        status: normalizeProviderStatus(response.status),
+        error: new Error(message),
+        meta: {
+          model: params.model,
+          providerStatus: response.status,
+          providerMessage: message
+        },
+        level: response.status >= 500 ? "error" : "warn"
       });
 
       return {
         ok: false,
-        message: classifyBedrockError(response.status),
+        message,
         status: normalizeProviderStatus(response.status),
         shouldFallback: response.status !== 401
       };
@@ -468,7 +504,12 @@ async function askBedrock(params: {
       .trim();
 
     if (!answer) {
-      console.warn("Bedrock Converse returned no text", { model: params.model });
+      logApiError(params.context, {
+        action: "bedrock_converse_empty_response",
+        status: 502,
+        error: new Error("Bedrock Converse returned no text."),
+        meta: { model: params.model }
+      });
       return {
         ok: false,
         message: "AI 服务没有返回文本。",
@@ -480,7 +521,12 @@ async function askBedrock(params: {
     return { ok: true, answer };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      console.warn("Bedrock Converse request timed out", { model: params.model });
+      logApiError(params.context, {
+        action: "bedrock_converse_timeout",
+        status: 504,
+        error,
+        meta: { model: params.model }
+      });
       return {
         ok: false,
         message: "AI 服务响应超时，请稍后再试。",
@@ -489,9 +535,11 @@ async function askBedrock(params: {
       };
     }
 
-    console.warn("Bedrock Converse request failed unexpectedly", {
-      model: params.model,
-      error: error instanceof Error ? sanitizeLogText(error.message) : "unknown"
+    logApiError(params.context, {
+      action: "bedrock_converse_unexpected",
+      status: 502,
+      error,
+      meta: { model: params.model }
     });
 
     return {
@@ -517,14 +565,7 @@ function normalizeProviderStatus(status: number) {
   return 502;
 }
 
-function sanitizeLogText(value: string) {
-  return value
-    .replace(/[A-Za-z0-9_./+=:-]{32,}/g, "[redacted]")
-    .replace(/Bearer\s+[^\s"']+/gi, "Bearer [redacted]")
-    .slice(0, 700);
-}
-
-function aiJson(data: Parameters<typeof json>[0], init: ResponseInit = {}) {
+function aiJson(data: Parameters<typeof json>[0], init: ApiResponseInit = {}) {
   return json(data, {
     ...init,
     headers: {
@@ -534,6 +575,11 @@ function aiJson(data: Parameters<typeof json>[0], init: ResponseInit = {}) {
   });
 }
 
-function aiError(message: string, status = 400) {
-  return aiJson({ ok: false, message }, { status });
+function aiError(message: string, status = 400, requestId?: string | ApiRequestContext) {
+  const resolvedRequestId = typeof requestId === "string" ? requestId : requestId?.requestId;
+
+  return aiJson(
+    resolvedRequestId ? { ok: false, message, requestId: resolvedRequestId } : { ok: false, message },
+    { status, requestId }
+  );
 }
