@@ -45,10 +45,12 @@
 - 2026-07-02：为 JSON API 增加 requestId 与脱敏错误日志后运行 `npm run check`，通过；仅保留既有 `document.execCommand("copy")` deprecation hint，无错误。
 - 2026-07-02：运行 `npm run build`，通过；完成 Astro check、生产构建和 Pagefind 索引生成。
 - 2026-07-02：本地 dev server 验证 `/api/post-stats` 无效 slug、`GET /api/ai` 405、`POST /api/ai-feedback` 无效 JSON 均返回 `X-Request-Id` 和错误 body `requestId`；评论 honeypot 成功响应仅在 header 返回 `X-Request-Id`，body 保持原成功结构；传入安全格式 `X-Request-Id` 时服务端会沿用。
+- 2026-07-02：已推送 `main` commit `8200fb3`；Netlify 当前生产 deploy 仍锁定在旧 commit `66a597e`，线上 `macondo-co.netlify.app` 和 `main--macondo-co.netlify.app` 的 API 探针仍是旧响应，未完成线上 requestId 验证。未执行上传式部署。
 - 2026-07-02：本次文档拆分和架构目录清单更新后运行 `npm run check`，通过；仅保留既有 `document.execCommand("copy")` deprecation hint，无错误。
 
 ## 已知问题
 
 - 历史对话里曾出现敏感 Supabase 信息；正式长期运行前应确认数据库密码和 service role key 已轮换。
+- Netlify 当前生产 deploy 显示 `locked: true` 且仍指向旧 commit `66a597e`；需要在 Netlify 解除 locked deploy 或恢复 GitHub main 自动构建发布后，再重新验证线上 `X-Request-Id`。
 - `docs/TECHNICAL_ARCHITECTURE.md` 是详细架构文档；后续涉及架构变化时应顺手复核其中的仓库结构、功能清单和演进路线是否仍准确。
-- 当前没有记录中的代码级阻塞项。
+- 当前没有代码级阻塞项；线上发布阻塞在 Netlify locked deploy 状态。
