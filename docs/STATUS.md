@@ -1,6 +1,6 @@
 # 项目状态
 
-更新时间：2026-07-02
+更新时间：2026-07-03
 
 本文件记录当前完成度、接手状态和下一步。每次功能迭代结束后都应更新，避免把临时状态塞回 `AGENTS.md`。
 
@@ -42,6 +42,7 @@
 
 ## 最近验证
 
+- 2026-07-03：修复 `getSupabaseAdmin()` 本地 Astro dev 下读取 Supabase server env 的兼容性；运行 `npm run check`，通过，仅保留既有 `document.execCommand("copy")` deprecation hint。已向 Supabase 应用 AI 限流 RPC 与 AI feedback migrations，随后本地 `/api/ai` 进入 RPC 权限校验，确认当前 `.env` 的 `SUPABASE_SERVICE_ROLE_KEY` 仍需替换为服务端 secret key。
 - 2026-07-02：为 JSON API 增加 requestId 与脱敏错误日志后运行 `npm run check`，通过；仅保留既有 `document.execCommand("copy")` deprecation hint，无错误。
 - 2026-07-02：运行 `npm run build`，通过；完成 Astro check、生产构建和 Pagefind 索引生成。
 - 2026-07-02：本地 dev server 验证 `/api/post-stats` 无效 slug、`GET /api/ai` 405、`POST /api/ai-feedback` 无效 JSON 均返回 `X-Request-Id` 和错误 body `requestId`；评论 honeypot 成功响应仅在 header 返回 `X-Request-Id`，body 保持原成功结构；传入安全格式 `X-Request-Id` 时服务端会沿用。
@@ -50,7 +51,8 @@
 
 ## 已知问题
 
+- 当前本地 `.env` 的 `SUPABASE_SERVICE_ROLE_KEY` 检测为 `sb_publishable_...` 类型，不能执行服务端 RPC；需在本地和 Netlify 生产环境替换为 Supabase server-side secret key（`sb_secret_...`）或 legacy `service_role` JWT 后再验证 AI 对话。
 - 历史对话里曾出现敏感 Supabase 信息；正式长期运行前应确认数据库密码和 service role key 已轮换。
-- Netlify 当前生产 deploy 显示 `locked: true` 且仍指向旧 commit `66a597e`；需要在 Netlify 解除 locked deploy 或恢复 GitHub main 自动构建发布后，再重新验证线上 `X-Request-Id`。
+- Netlify 当前生产 deploy 仍显示 `locked: true`；后续替换生产环境 Supabase secret key 并重新部署后，应再验证线上 `/api/ai` 与 `X-Request-Id`。
 - `docs/TECHNICAL_ARCHITECTURE.md` 是详细架构文档；后续涉及架构变化时应顺手复核其中的仓库结构、功能清单和演进路线是否仍准确。
 - 当前没有代码级阻塞项；线上发布阻塞在 Netlify locked deploy 状态。

@@ -1,11 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
 
 export function getSupabaseAdmin() {
-  const url = process.env.SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = getServerEnv("SUPABASE_URL");
+  const serviceRoleKey = getServerEnv("SUPABASE_SERVICE_ROLE_KEY");
 
   if (!url || !serviceRoleKey) {
     throw new Error("Missing Supabase server environment variables.");
+  }
+
+  if (serviceRoleKey.startsWith("sb_publishable_")) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY must be a server-side secret key, not a publishable key.");
   }
 
   return createClient(url, serviceRoleKey, {
@@ -14,6 +18,10 @@ export function getSupabaseAdmin() {
       autoRefreshToken: false
     }
   });
+}
+
+function getServerEnv(name: string) {
+  return process.env[name] ?? import.meta.env[name];
 }
 
 export function hashIp(ip: string | null) {

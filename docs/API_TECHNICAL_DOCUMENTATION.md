@@ -72,6 +72,13 @@ Authorization: Bearer <BLOG_ADMIN_TOKEN>
 
 不要在日志、截图、提交内容或浏览器端代码中暴露 `SUPABASE_SERVICE_ROLE_KEY`、`BLOG_ADMIN_TOKEN`、`COMMENT_NOTIFY_WEBHOOK_URL`、`AWS_BEARER_TOKEN_BEDROCK` 或数据库连接信息。
 
+Supabase 服务端相关环境变量：
+
+| 变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `SUPABASE_URL` | 无 | Supabase 项目 URL，用于服务端 API 读写公开互动数据 |
+| `SUPABASE_SERVICE_ROLE_KEY` | 无 | Supabase 服务端 secret key（`sb_secret_...`）或 legacy `service_role` JWT；不能使用 `sb_publishable_...` |
+
 评论防刷相关环境变量：
 
 | 变量 | 默认值 | 用途 |
